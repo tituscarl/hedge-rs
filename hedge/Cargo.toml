@@ -1,6 +1,11 @@
 [package]
-name = "hedge"
+name = "hedge_rs"
 version = "0.1.0"
 edition = "2024"
+authors = ["flowerinthenight <root@flowerinthenight.com>"]
+description = "A cluster membership library built on spindle-rs."
+license = "MIT"
+repository = "https://github.com/flowerinthenight/hedge-rs"
+keywords = ["memberlist", "cluster", "spanner"]
 
 [dependencies]

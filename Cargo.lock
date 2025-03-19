@@ -7,5 +7,5 @@ name = "example"
 version = "0.1.0"
 
 [[package]]
-name = "hedge"
+name = "hedge_rs"
 version = "0.1.0"
