@@ -45,8 +45,6 @@ enum ProtoCtrl {
     Heartbeat(Sender<i128>),
 }
 
-/// `Op` implements distributed locking using Spanner as backing
-/// storage and TrueTime as our source of global true time.
 pub struct Op {
     db: String,
     table: String,
@@ -60,12 +58,10 @@ pub struct Op {
 
 impl Op {
     /// Allows for discovery of the builder.
-    pub fn builder() -> LockBuilder {
-        LockBuilder::default()
+    pub fn builder() -> OpBuilder {
+        OpBuilder::default()
     }
 
-    /// Starts the main lock loop. This function doesn't block. If the duration is
-    /// set to less than 1s, it will default to 1s (minimum).
     pub fn run(&mut self) -> Result<(), anyhow::Error> {
         Ok(())
     }
@@ -73,7 +69,7 @@ impl Op {
 
 /// `LockBuilder` builds an instance of Lock with default values.
 #[derive(Default)]
-pub struct LockBuilder {
+pub struct OpBuilder {
     db: String,
     table: String,
     name: String,
@@ -81,32 +77,32 @@ pub struct LockBuilder {
     duration_ms: u64,
 }
 
-impl LockBuilder {
-    pub fn new() -> LockBuilder {
-        LockBuilder::default()
+impl OpBuilder {
+    pub fn new() -> OpBuilder {
+        OpBuilder::default()
     }
 
-    pub fn db(mut self, db: String) -> LockBuilder {
+    pub fn db(mut self, db: String) -> OpBuilder {
         self.db = db;
         self
     }
 
-    pub fn table(mut self, table: String) -> LockBuilder {
+    pub fn table(mut self, table: String) -> OpBuilder {
         self.table = table;
         self
     }
 
-    pub fn name(mut self, name: String) -> LockBuilder {
+    pub fn name(mut self, name: String) -> OpBuilder {
         self.name = name;
         self
     }
 
-    pub fn id(mut self, id: String) -> LockBuilder {
+    pub fn id(mut self, id: String) -> OpBuilder {
         self.id = id;
         self
     }
 
-    pub fn duration_ms(mut self, ms: u64) -> LockBuilder {
+    pub fn duration_ms(mut self, ms: u64) -> OpBuilder {
         self.duration_ms = ms;
         self
     }
@@ -449,6 +445,5 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_run() {
-    }
+    fn no_run() {}
 }
