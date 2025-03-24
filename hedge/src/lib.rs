@@ -6,6 +6,7 @@ use google_cloud_spanner::client::ClientConfig;
 use google_cloud_spanner::statement::Statement;
 use google_cloud_spanner::value::CommitTimestamp;
 use log::*;
+use spindle_rs::*;
 use std::fmt::Write as _;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -67,7 +68,7 @@ impl Op {
 
     pub fn run(&mut self) -> Result<(), anyhow::Error> {
         let (s, r) = unbounded();
-        let ch = Arc::new(Mutex::new(Vec::new()));
+        let recvs = Arc::new(Mutex::new(Vec::new()));
         let cpus = num_cpus::get();
         let start = Instant::now();
 
@@ -75,36 +76,47 @@ impl Op {
             info!("took {:?}", start.elapsed());
         }
 
-        for i in 0..cpus {
-            info!("cpu{}", i);
-            let ch = ch.clone();
+        let mut lock_name = String::new();
+        write!(&mut lock_name, "hedge/spindle/{}", self.name.clone()).unwrap();
+
+        let mut lock = LockBuilder::new()
+            .db(self.db.clone())
+            .table(self.table.clone())
+            .name(lock_name)
+            .duration_ms(3000)
+            .callback(Some(|v| info!("callback: leader={v}")))
+            .build();
+
+        lock.run()?;
+
+        for _ in 0..cpus {
+            let recv = recvs.clone();
             {
-                let mut c = ch.lock().unwrap();
-                c.push(r.clone());
+                let mut rv = recv.lock().unwrap();
+                rv.push(r.clone());
             }
         }
 
         for i in 0..cpus {
-            let ch = ch.clone();
+            let recv = recvs.clone();
             thread::spawn(move || {
-                info!("start thread-{i}");
                 loop {
-                    let c = ch.lock();
-                    if c.is_err() {
+                    let rv = recv.lock();
+                    if rv.is_err() {
                         error!("{i}: lock failed");
                         break;
                     }
 
-                    let cv = c.unwrap();
-                    match cv[i].recv() {
+                    let r = rv.unwrap();
+                    match r[i].recv() {
                         Ok(v) => {
                             info!("t{i}: {:?}", v);
                         }
                         Err(_) => {}
                     }
 
-                    drop(cv);
-                    thread::sleep(Duration::from_millis(50));
+                    drop(r);
+                    thread::sleep(Duration::from_millis(1));
                 }
             });
         }

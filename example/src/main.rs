@@ -2,9 +2,8 @@ use anyhow::Result;
 use ctrlc;
 use hedge_rs::*;
 use log::*;
+use std::env;
 use std::sync::mpsc::channel;
-use std::sync::{Arc, Mutex};
-use std::{env, thread, time::Duration};
 
 fn main() -> Result<()> {
     env_logger::init();
@@ -32,6 +31,7 @@ fn main() -> Result<()> {
     // info!("has_lock: {locked}, {node}, {token}");
 
     // Wait for Ctrl-C.
+    info!("Ctrl-C to exit:");
     rx.recv()?;
     op.close();
 
