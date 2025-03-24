@@ -1689,9 +1689,9 @@ dependencies = [
 
 [[package]]
 name = "spindle_rs"
-version = "0.2.1"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74068ebb8ba7577252afaafc38b1aa58e4b560958e72d5410fd72d9514dd0cac"
+checksum = "f098b331c5b861ad9dd34b35121934acc7a0188ff11cb9f020b1539e77257ab7"
 dependencies = [
  "anyhow",
  "exp_backoff",
