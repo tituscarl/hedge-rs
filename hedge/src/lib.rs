@@ -1,5 +1,5 @@
 use anyhow::{Result, anyhow};
-use crossbeam_channel::unbounded;
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use exp_backoff::BackoffBuilder;
 use google_cloud_spanner::client::Client;
 use google_cloud_spanner::client::ClientConfig;
@@ -8,9 +8,9 @@ use google_cloud_spanner::value::CommitTimestamp;
 use log::*;
 use spindle_rs::*;
 use std::fmt::Write as _;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::io::{BufReader, Error, ErrorKind, prelude::*};
+use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -66,16 +66,7 @@ impl Op {
         OpBuilder::default()
     }
 
-    pub fn run(&mut self) -> Result<(), anyhow::Error> {
-        let (s, r) = unbounded();
-        let recvs = Arc::new(Mutex::new(Vec::new()));
-        let cpus = num_cpus::get();
-        let start = Instant::now();
-
-        defer! {
-            info!("took {:?}", start.elapsed());
-        }
-
+    pub fn run(&mut self) -> Result<()> {
         let mut lock_name = String::new();
         write!(&mut lock_name, "hedge/spindle/{}", self.name.clone()).unwrap();
 
@@ -89,11 +80,16 @@ impl Op {
 
         lock.run()?;
 
+        let (tx, rx): (Sender<TcpStream>, Receiver<TcpStream>) = unbounded();
+        let recvs = Arc::new(Mutex::new(Vec::new()));
+        let cpus = num_cpus::get();
+
         for _ in 0..cpus {
             let recv = recvs.clone();
+
             {
                 let mut rv = recv.lock().unwrap();
-                rv.push(r.clone());
+                rv.push(rx.clone());
             }
         }
 
@@ -101,45 +97,78 @@ impl Op {
             let recv = recvs.clone();
             thread::spawn(move || {
                 loop {
-                    let rv = recv.lock();
-                    if rv.is_err() {
-                        error!("{i}: lock failed");
-                        break;
-                    }
-
-                    let r = rv.unwrap();
-                    match r[i].recv() {
-                        Ok(v) => {
-                            info!("t{i}: {:?}", v);
+                    let rx = match recv.lock() {
+                        Ok(v) => v,
+                        Err(e) => {
+                            error!("t{i}: lock failed: {e}");
+                            continue;
                         }
-                        Err(_) => {}
+                    };
+
+                    let mut conn = rx[i].recv().unwrap();
+                    drop(rx); // no need to wait
+
+                    let start = Instant::now();
+
+                    defer! {
+                        info!("[t{i}] took {:?}", start.elapsed());
                     }
 
-                    drop(r);
-                    thread::sleep(Duration::from_millis(1));
+                    let mut reader = BufReader::new(&conn);
+                    let mut data = String::new();
+                    reader.read_line(&mut data).unwrap();
+
+                    info!("[t{i}]: request: {data:?}");
+
+                    if let Err(e) = conn.write_all(b"reply\n") {
+                        error!("[t{i}]: write_all failed: {e}");
+                    }
                 }
             });
         }
 
+        // Start our internal TCP server.
+        let tx_tcp = tx.clone();
+        thread::spawn(move || {
+            info!("starting internal TCP server");
+            let listen = TcpListener::bind("0.0.0.0:8080").unwrap();
+            for stream in listen.incoming() {
+                let stream = match stream {
+                    Ok(v) => v,
+                    Err(e) => {
+                        error!("stream failed: {e}");
+                        continue;
+                    }
+                };
+
+                tx_tcp.send(stream).unwrap();
+            }
+        });
+
         thread::sleep(Duration::from_secs(1));
         info!("start send");
 
-        s.send(10).unwrap();
-        s.send(20).unwrap();
-        s.send(30).unwrap();
-        s.send(40).unwrap();
-        s.send(50).unwrap();
-        s.send(60).unwrap();
-        s.send(70).unwrap();
-        s.send(80).unwrap();
-        s.send(10).unwrap();
-        s.send(20).unwrap();
-        s.send(30).unwrap();
-        s.send(40).unwrap();
-        s.send(50).unwrap();
-        s.send(60).unwrap();
-        s.send(70).unwrap();
-        s.send(80).unwrap();
+        // Test our internal TCP server.
+        thread::spawn(move || {
+            for i in 0..cpus {
+                let mut stream = match TcpStream::connect("127.0.0.1:8080") {
+                    Ok(v) => v,
+                    Err(e) => {
+                        error!("[{i}]: connect failed: {e}");
+                        return;
+                    }
+                };
+
+                let mut send = String::new();
+                write!(&mut send, "hello_{i}\n").unwrap();
+                if let Ok(_) = stream.write_all(send.as_bytes()) {
+                    let mut reader = BufReader::new(&stream);
+                    let mut data = String::new();
+                    reader.read_line(&mut data).unwrap();
+                    info!("[{i}]: response: {data:?}");
+                }
+            }
+        });
 
         Ok(())
     }
@@ -219,7 +248,7 @@ fn spanner_caller(
     tx_ok: Sender<Result<()>>,
 ) {
     let rt = Runtime::new().unwrap();
-    let (tx, rx): (Sender<Option<Client>>, Receiver<Option<Client>>) = channel();
+    let (tx, rx): (Sender<Option<Client>>, Receiver<Option<Client>>) = unbounded();
     rt.block_on(async {
         let config = ClientConfig::default().with_auth().await;
         match config {
@@ -254,7 +283,7 @@ fn spanner_caller(
             }
             ProtoCtrl::InitialLock(tx) => {
                 let start = Instant::now();
-                let (tx_in, rx_in): (Sender<i128>, Receiver<i128>) = channel();
+                let (tx_in, rx_in): (Sender<i128>, Receiver<i128>) = unbounded();
                 rt.block_on(async {
                     let mut q = String::new();
                     write!(&mut q, "insert {} ", table).unwrap();
@@ -299,7 +328,7 @@ fn spanner_caller(
             }
             ProtoCtrl::NextLockInsert { name, tx } => {
                 let start = Instant::now();
-                let (tx_in, rx_in): (Sender<i128>, Receiver<i128>) = channel();
+                let (tx_in, rx_in): (Sender<i128>, Receiver<i128>) = unbounded();
                 rt.block_on(async {
                     let mut q = String::new();
                     write!(&mut q, "insert {} ", table).unwrap();
@@ -339,7 +368,7 @@ fn spanner_caller(
             }
             ProtoCtrl::NextLockUpdate { token, tx } => {
                 let start = Instant::now();
-                let (tx_in, rx_in): (Sender<i128>, Receiver<i128>) = channel();
+                let (tx_in, rx_in): (Sender<i128>, Receiver<i128>) = unbounded();
                 rt.block_on(async {
                     let mut q = String::new();
                     write!(&mut q, "update {} set ", table).unwrap();
@@ -393,7 +422,7 @@ fn spanner_caller(
             }
             ProtoCtrl::CheckLock(tx) => {
                 let start = Instant::now();
-                let (tx_in, rx_in): (Sender<DiffToken>, Receiver<DiffToken>) = channel();
+                let (tx_in, rx_in): (Sender<DiffToken>, Receiver<DiffToken>) = unbounded();
                 rt.block_on(async {
                     let mut q = String::new();
                     write!(&mut q, "select ",).unwrap();
@@ -433,7 +462,7 @@ fn spanner_caller(
             }
             ProtoCtrl::CurrentToken(tx) => {
                 let start = Instant::now();
-                let (tx_in, rx_in): (Sender<Record>, Receiver<Record>) = channel();
+                let (tx_in, rx_in): (Sender<Record>, Receiver<Record>) = unbounded();
                 rt.block_on(async {
                     let mut q = String::new();
                     write!(&mut q, "select token, writer from {} ", table).unwrap();
@@ -479,7 +508,7 @@ fn spanner_caller(
             }
             ProtoCtrl::Heartbeat(tx) => {
                 let start = Instant::now();
-                let (tx_in, rx_in): (Sender<i128>, Receiver<i128>) = channel();
+                let (tx_in, rx_in): (Sender<i128>, Receiver<i128>) = unbounded();
                 rt.block_on(async {
                     let mut q = String::new();
                     write!(&mut q, "update {} ", table).unwrap();
