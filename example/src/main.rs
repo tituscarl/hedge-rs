@@ -20,6 +20,7 @@ fn main() -> Result<()> {
         .db(args[1].clone())
         .table(args[2].clone())
         .name("spindle-rs".to_string())
+        .id("0.0.0.0:8080".to_string())
         .duration_ms(3000)
         .build();
 

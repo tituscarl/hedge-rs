@@ -8,7 +8,7 @@ use google_cloud_spanner::value::CommitTimestamp;
 use log::*;
 use spindle_rs::*;
 use std::fmt::Write as _;
-use std::io::{BufReader, Error, ErrorKind, prelude::*};
+use std::io::{BufReader, prelude::*};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -74,6 +74,7 @@ impl Op {
             .db(self.db.clone())
             .table(self.table.clone())
             .name(lock_name)
+            .id(self.id.clone())
             .duration_ms(3000)
             .callback(Some(|v| info!("callback: leader={v}")))
             .build();
@@ -93,6 +94,7 @@ impl Op {
             }
         }
 
+        // Initialize our workers for our TCP server.
         for i in 0..cpus {
             let recv = recvs.clone();
             thread::spawn(move || {
@@ -129,9 +131,10 @@ impl Op {
 
         // Start our internal TCP server.
         let tx_tcp = tx.clone();
+        let host = self.id.clone();
         thread::spawn(move || {
             info!("starting internal TCP server");
-            let listen = TcpListener::bind("0.0.0.0:8080").unwrap();
+            let listen = TcpListener::bind(host).unwrap();
             for stream in listen.incoming() {
                 let stream = match stream {
                     Ok(v) => v,
@@ -145,13 +148,14 @@ impl Op {
             }
         });
 
-        thread::sleep(Duration::from_secs(1));
-        info!("start send");
-
         // Test our internal TCP server.
+        let host_test = self.id.clone();
         thread::spawn(move || {
+            let hp: Vec<&str> = host_test.split(":").collect();
             for i in 0..cpus {
-                let mut stream = match TcpStream::connect("127.0.0.1:8080") {
+                let mut host = String::new();
+                write!(&mut host, "127.0.0.1:{}", hp[1]).unwrap();
+                let mut stream = match TcpStream::connect(host) {
                     Ok(v) => v,
                     Err(e) => {
                         error!("[{i}]: connect failed: {e}");
@@ -169,6 +173,10 @@ impl Op {
                 }
             }
         });
+
+        // Finally, set the system active.
+        let active = self.active.clone();
+        active.store(1, Ordering::Relaxed);
 
         Ok(())
     }
