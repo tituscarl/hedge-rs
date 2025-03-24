@@ -1,4 +1,5 @@
 use anyhow::{Result, anyhow};
+use crossbeam_channel::unbounded;
 use exp_backoff::BackoffBuilder;
 use google_cloud_spanner::client::Client;
 use google_cloud_spanner::client::ClientConfig;
@@ -6,10 +7,10 @@ use google_cloud_spanner::statement::Statement;
 use google_cloud_spanner::value::CommitTimestamp;
 use log::*;
 use std::fmt::Write as _;
-use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use time::OffsetDateTime;
@@ -18,6 +19,8 @@ use uuid::Uuid;
 
 #[macro_use(defer)]
 extern crate scopeguard;
+
+extern crate num_cpus;
 
 #[derive(Debug)]
 struct DiffToken {
@@ -63,8 +66,73 @@ impl Op {
     }
 
     pub fn run(&mut self) -> Result<(), anyhow::Error> {
+        let (s, r) = unbounded();
+        let ch = Arc::new(Mutex::new(Vec::new()));
+        let cpus = num_cpus::get();
+        let start = Instant::now();
+
+        defer! {
+            info!("took {:?}", start.elapsed());
+        }
+
+        for i in 0..cpus {
+            info!("cpu{}", i);
+            let ch = ch.clone();
+            {
+                let mut c = ch.lock().unwrap();
+                c.push(r.clone());
+            }
+        }
+
+        for i in 0..cpus {
+            let ch = ch.clone();
+            thread::spawn(move || {
+                info!("start thread-{i}");
+                loop {
+                    let c = ch.lock();
+                    if c.is_err() {
+                        error!("{i}: lock failed");
+                        break;
+                    }
+
+                    let cv = c.unwrap();
+                    match cv[i].recv() {
+                        Ok(v) => {
+                            info!("t{i}: {:?}", v);
+                        }
+                        Err(_) => {}
+                    }
+
+                    drop(cv);
+                    thread::sleep(Duration::from_millis(50));
+                }
+            });
+        }
+
+        thread::sleep(Duration::from_secs(1));
+        info!("start send");
+
+        s.send(10).unwrap();
+        s.send(20).unwrap();
+        s.send(30).unwrap();
+        s.send(40).unwrap();
+        s.send(50).unwrap();
+        s.send(60).unwrap();
+        s.send(70).unwrap();
+        s.send(80).unwrap();
+        s.send(10).unwrap();
+        s.send(20).unwrap();
+        s.send(30).unwrap();
+        s.send(40).unwrap();
+        s.send(50).unwrap();
+        s.send(60).unwrap();
+        s.send(70).unwrap();
+        s.send(80).unwrap();
+
         Ok(())
     }
+
+    pub fn close(&mut self) {}
 }
 
 /// `LockBuilder` builds an instance of Lock with default values.

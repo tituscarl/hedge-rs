@@ -1,110 +1,39 @@
-use crossbeam_channel::unbounded;
+use anyhow::Result;
+use ctrlc;
+use hedge_rs::*;
 use log::*;
+use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
-use std::{thread, time::Duration};
+use std::{env, thread, time::Duration};
 
-extern crate num_cpus;
-
-fn channels() {
-    let (s, r) = unbounded();
-    let ch = Arc::new(Mutex::new(Vec::new()));
-    let cpus = num_cpus::get();
-    info!("cpus={}", cpus);
-
-    for i in 0..cpus {
-        info!("cpu{}", i);
-        let ch = ch.clone();
-        {
-            let mut c = ch.lock().unwrap();
-            c.push(r.clone());
-        }
-    }
-
-    for i in 0..cpus {
-        let ch = ch.clone();
-        thread::spawn(move || {
-            info!("start thread-{i}");
-            loop {
-                let c = ch.lock();
-                if c.is_err() {
-                    error!("{i}: lock failed");
-                    break;
-                }
-
-                let cv = c.unwrap();
-                match cv[i].recv() {
-                    Ok(v) => {
-                        info!("t{i}: {:?}", v);
-                    }
-                    Err(_) => {}
-                }
-
-                drop(cv);
-                thread::sleep(Duration::from_millis(50));
-            }
-        });
-    }
-
-    thread::sleep(Duration::from_secs(5));
-    info!("start send");
-
-    s.send(10).unwrap();
-    s.send(20).unwrap();
-    s.send(30).unwrap();
-    s.send(40).unwrap();
-    s.send(50).unwrap();
-    s.send(60).unwrap();
-    s.send(70).unwrap();
-    s.send(80).unwrap();
-    s.send(10).unwrap();
-    s.send(20).unwrap();
-    s.send(30).unwrap();
-    s.send(40).unwrap();
-    s.send(50).unwrap();
-    s.send(60).unwrap();
-    s.send(70).unwrap();
-    s.send(80).unwrap();
-
-    thread::sleep(Duration::from_secs(5));
-}
-
-fn main() {
+fn main() -> Result<()> {
     env_logger::init();
-    channels();
+    let args: Vec<String> = env::args().collect();
 
-    // let q: ArrayQueue<Option<i32>> = ArrayQueue::new(8);
-    // let cpus = num_cpus::get();
-    // info!("cpus={}", cpus);
+    if args.len() < 3 {
+        error!("provide the db and table args");
+        return Ok(());
+    }
 
-    // for i in 0..cpus {
-    //     thread::spawn(move || {
-    //         info!("start thread-{i}");
-    //         loop {
-    //             let v = q.pop();
-    //             info!("t{i}: {:?}", v);
-    //             thread::sleep(Duration::from_millis(1000));
-    //         }
-    //     });
-    // }
+    let (tx, rx) = channel();
+    ctrlc::set_handler(move || tx.send(()).unwrap())?;
+    let mut op = OpBuilder::new()
+        .db(args[1].clone())
+        .table(args[2].clone())
+        .name("spindle-rs".to_string())
+        .duration_ms(3000)
+        .build();
 
-    // thread::sleep(Duration::from_secs(5));
-    // info!("start send");
+    op.run()?;
 
-    // s.send(10).unwrap();
-    // thread::sleep(Duration::from_millis(500));
-    // s.send(20).unwrap();
-    // thread::sleep(Duration::from_millis(500));
-    // s.send(30).unwrap();
-    // thread::sleep(Duration::from_millis(500));
-    // s.send(40).unwrap();
-    // thread::sleep(Duration::from_millis(500));
-    // s.send(50).unwrap();
-    // thread::sleep(Duration::from_millis(500));
-    // s.send(60).unwrap();
-    // thread::sleep(Duration::from_millis(500));
-    // s.send(70).unwrap();
-    // thread::sleep(Duration::from_millis(500));
-    // s.send(80).unwrap();
+    // Wait for a bit before calling has_lock().
+    // thread::sleep(Duration::from_secs(10));
+    // let (locked, node, token) = lock.has_lock();
+    // info!("has_lock: {locked}, {node}, {token}");
 
-    thread::sleep(Duration::from_secs(2));
+    // Wait for Ctrl-C.
+    rx.recv()?;
+    op.close();
+
+    Ok(())
 }

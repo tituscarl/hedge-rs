@@ -17,3 +17,5 @@ time = "0.3.40"
 scopeguard = "1.2.0"
 uuid = { version = "1.16.0", features = ["v4"] }
 anyhow = "1.0.97"
+crossbeam-channel = "0.5.14"
+num_cpus = "1.16.0"
