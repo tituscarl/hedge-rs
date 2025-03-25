@@ -1,6 +1,7 @@
 mod protocol;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
+use base64::prelude::*;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use log::*;
 use protocol::*;
@@ -19,12 +20,16 @@ use uuid::Uuid;
 #[macro_use(defer)]
 extern crate scopeguard;
 
-extern crate num_cpus;
+#[derive(Debug)]
+pub enum LeaderChannel {
+    ToLeader { msg: Vec<u8>, tx: mpsc::Sender<Vec<u8>> },
+}
 
 #[derive(Debug)]
 enum WorkerCtrl {
     TcpServer(TcpStream),
     PingMember(String),
+    ToLeader { msg: Vec<u8>, tx: Sender<Vec<u8>> },
 }
 
 pub struct Op {
@@ -37,6 +42,8 @@ pub struct Op {
     lease_ms: u64,
     sync_ms: u64,
     members: Arc<Mutex<HashMap<String, usize>>>,
+    tx_worker: Vec<Sender<WorkerCtrl>>,
+    tx_toleader: Option<mpsc::Sender<LeaderChannel>>,
     active: Arc<AtomicUsize>,
 }
 
@@ -98,6 +105,8 @@ impl Op {
         let rxs: Arc<Mutex<HashMap<usize, Receiver<WorkerCtrl>>>> = Arc::new(Mutex::new(HashMap::new()));
         let cpus = num_cpus::get();
 
+        self.tx_worker = vec![tx.clone()];
+
         for i in 0..cpus {
             let recv = rxs.clone();
 
@@ -109,6 +118,7 @@ impl Op {
 
         // Start our worker threads for our TCP server.
         for i in 0..cpus {
+            let lock = self.lock[0].clone();
             let recv = rxs.clone();
             let members = self.members.clone();
             let leader = self.leader.clone();
@@ -171,7 +181,7 @@ impl Op {
                                 };
 
                                 let mut send = String::new();
-                                write!(&mut send, "{}\n", HEY).unwrap();
+                                write!(&mut send, "{}\n", CMD_PING).unwrap();
                                 if let Err(_) = stream.write_all(send.as_bytes()) {
                                     break 'onetime;
                                 }
@@ -180,7 +190,7 @@ impl Op {
                                 let mut resp = String::new();
                                 reader.read_line(&mut resp).unwrap();
 
-                                if !resp.starts_with(ACK) {
+                                if !resp.starts_with("+1") {
                                     delete = true
                                 }
 
@@ -192,6 +202,66 @@ impl Op {
                                 if let Ok(mut v) = members.lock() {
                                     v.remove(&name);
                                 }
+                            }
+                        }
+                        WorkerCtrl::ToLeader { msg, tx } => {
+                            let start = Instant::now();
+
+                            defer! {
+                                info!("[T{i}]: toleader took {:?}", start.elapsed());
+                            }
+
+                            'onetime: loop {
+                                let mut leader = String::new();
+
+                                {
+                                    if let Ok(v) = lock.lock() {
+                                        let (_, writer, _) = v.has_lock();
+                                        write!(&mut leader, "{}", writer).unwrap();
+                                    }
+                                }
+
+                                if leader.is_empty() {
+                                    tx.send("-no leader".as_bytes().to_vec()).unwrap();
+                                    break 'onetime;
+                                }
+
+                                let encoded = BASE64_STANDARD.encode(msg);
+
+                                let hp: Vec<&str> = leader.split(":").collect();
+                                let hh: Vec<&str> = hp[0].split(".").collect();
+                                let leader_ip = SocketAddr::new(
+                                    IpAddr::V4(Ipv4Addr::new(
+                                        hh[0].parse::<u8>().unwrap(),
+                                        hh[1].parse::<u8>().unwrap(),
+                                        hh[2].parse::<u8>().unwrap(),
+                                        hh[3].parse::<u8>().unwrap(),
+                                    )),
+                                    hp[1].parse::<u16>().unwrap(),
+                                );
+
+                                let mut stream = match TcpStream::connect_timeout(&leader_ip, Duration::from_secs(5)) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        let mut err = String::new();
+                                        write!(&mut err, "-connect_timeout failed: {e}").unwrap();
+                                        tx.send(err.as_bytes().to_vec()).unwrap();
+                                        break 'onetime;
+                                    }
+                                };
+
+                                let mut send = String::new();
+                                write!(&mut send, "{}{}\n", CMD_SEND, encoded).unwrap();
+                                if let Ok(_) = stream.write_all(send.as_bytes()) {
+                                    let mut reader = BufReader::new(&stream);
+                                    let mut resp = String::new();
+                                    reader.read_line(&mut resp).unwrap();
+
+                                    info!(">>>>> response: {resp:?}");
+                                    tx.send(resp.as_bytes().to_vec()).unwrap();
+                                }
+
+                                break 'onetime;
                             }
                         }
                     }
@@ -227,7 +297,8 @@ impl Op {
         let tx_ensure = tx.clone();
         let lock = self.lock[0].clone();
         let leader_track = self.leader.clone();
-        let id = self.id.clone();
+        let id_1 = self.id.clone();
+        let id_0 = self.id.clone();
         let members = self.members.clone();
         thread::spawn(move || {
             loop {
@@ -251,7 +322,9 @@ impl Op {
                     {
                         if let Ok(v) = members.clone().lock() {
                             for (k, _) in &*v {
-                                mm.push(k.clone());
+                                if k != &id_1 {
+                                    mm.push(k.clone());
+                                }
                             }
                         }
                     }
@@ -295,7 +368,7 @@ impl Op {
                     };
 
                     let mut send = String::new();
-                    write!(&mut send, "{} {}\n", HEY, id).unwrap();
+                    write!(&mut send, "{}{}\n", CMD_PING, id_0).unwrap();
                     if let Ok(_) = stream.write_all(send.as_bytes()) {
                         let mut reader = BufReader::new(&stream);
                         let mut resp = String::new();
@@ -303,12 +376,16 @@ impl Op {
 
                         info!("response: {resp:?}");
 
-                        let mm: Vec<&str> = resp[..resp.len() - 1].split(",").collect();
+                        if resp.chars().nth(0).unwrap() != '+' {
+                            continue;
+                        }
+
+                        let mm: Vec<&str> = resp[1..resp.len() - 1].split(",").collect();
                         if mm.len() > 0 {
                             if let Ok(mut v) = members.clone().lock() {
                                 v.clear();
                                 for m in mm {
-                                    if m.len() > 0 && !m.starts_with(ACK) {
+                                    if m.len() > 0 && !m.starts_with("+") {
                                         v.insert(m.to_string(), 0);
                                     }
                                 }
@@ -367,6 +444,20 @@ impl Op {
         return ret;
     }
 
+    /// TODO: Send to leader.
+    pub fn send(&mut self, msg: Vec<u8>) -> Result<Vec<u8>> {
+        let active = self.active.clone();
+        if active.load(Ordering::Acquire) == 0 {
+            return Err(anyhow!("still initializing"));
+        }
+
+        let (tx, rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = unbounded();
+        self.tx_worker[0].send(WorkerCtrl::ToLeader { msg, tx }).unwrap();
+        let r = rx.recv().unwrap();
+        info!(">>>>> send-reply: {:?}", String::from_utf8(r).unwrap());
+        Ok(Vec::new())
+    }
+
     pub fn close(&mut self) {
         let lock = self.lock[0].clone();
         if let Ok(mut v) = lock.lock() {
@@ -384,6 +475,7 @@ pub struct OpBuilder {
     id: String,
     lease_ms: u64,
     sync_ms: u64,
+    tx_toleader: Option<mpsc::Sender<LeaderChannel>>,
 }
 
 impl OpBuilder {
@@ -427,6 +519,12 @@ impl OpBuilder {
         self
     }
 
+    /// TODO:
+    pub fn toleader(mut self, tx: Option<mpsc::Sender<LeaderChannel>>) -> OpBuilder {
+        self.tx_toleader = tx;
+        self
+    }
+
     pub fn build(self) -> Op {
         Op {
             db: self.db,
@@ -443,6 +541,8 @@ impl OpBuilder {
             lease_ms: self.sync_ms,
             sync_ms: self.sync_ms,
             members: Arc::new(Mutex::new(HashMap::new())),
+            tx_worker: vec![],
+            tx_toleader: self.tx_toleader,
             active: Arc::new(AtomicUsize::new(0)),
         }
     }

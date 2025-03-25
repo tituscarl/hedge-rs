@@ -5,10 +5,11 @@ use std::io::{BufReader, prelude::*};
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 
-pub const LDR: &str = "LDR"; // for leader confirmation, reply="ACK"
-pub const HEY: &str = "HEY"; // heartbeat to indicate availability, fmt="HEY [id]"
-pub const ACK: &str = "ACK"; // generic reply, fmt="ACK"|"ACK base64(err)"
+pub const CMD_CLDR: &str = "#"; // for leader confirmation, reply="+<1|0>"
+pub const CMD_PING: &str = "*"; // heartbeat to indicate availability, fmt="+[id]"
+pub const CMD_SEND: &str = "$"; // member to leader, fmt="$<base64(payload)>"
 
+// Replies starts with either '+' or '-'; '+' = success, '-' = error.
 pub fn handle_protocol(id: usize, mut stream: TcpStream, leader: usize, members: Arc<Mutex<HashMap<String, usize>>>) {
     let mut reader = BufReader::new(&stream);
     let mut data = String::new();
@@ -16,13 +17,13 @@ pub fn handle_protocol(id: usize, mut stream: TcpStream, leader: usize, members:
 
     info!("[T{id}]: request: {data:?}");
 
-    // Confirm if we are leader. Reply with ACK if so, otherwise, empty.
-    if data.starts_with(LDR) {
+    // Confirm if we are leader. Reply with +1 if so, otherwise, +0.
+    if data.starts_with(CMD_CLDR) {
         let mut ack = String::new();
         if leader > 0 {
-            write!(&mut ack, "{}\n", ACK).unwrap();
+            write!(&mut ack, "+1\n").unwrap();
         } else {
-            write!(&mut ack, "\n").unwrap();
+            write!(&mut ack, "+0\n").unwrap();
         }
 
         if let Err(e) = stream.write_all(ack.as_bytes()) {
@@ -32,14 +33,14 @@ pub fn handle_protocol(id: usize, mut stream: TcpStream, leader: usize, members:
         return;
     }
 
-    // Heartbeat. If the payload is "HEY <name>\n", sender is non-leader.
-    // If the payload is "HEY\n", sender is leader, for liveness check.
-    if data.starts_with(HEY) {
-        'onetime: loop {
-            let ss: Vec<&str> = data.split(" ").collect();
-            if ss.len() == 1 {
+    // Heartbeat. If the payload is "*<name>\n", sender is non-leader, and leader will
+    // reply with "+{comma-separated-list-of-members}". If the payload is "*\n", sender
+    // is leader, for liveness check, and we reply +1.
+    if data.starts_with(CMD_PING) {
+        loop {
+            if data.len() == 2 {
                 let mut ack = String::new();
-                write!(&mut ack, "{}\n", ACK).unwrap();
+                write!(&mut ack, "+1\n").unwrap();
 
                 if let Err(e) = stream.write_all(ack.as_bytes()) {
                     error!("[T{id}]: write_all failed: {e}");
@@ -48,14 +49,10 @@ pub fn handle_protocol(id: usize, mut stream: TcpStream, leader: usize, members:
                 return;
             }
 
-            if ss.len() != 2 {
-                break 'onetime;
-            }
-
             {
                 if let Ok(mut v) = members.lock() {
-                    let s1 = &ss[1][..&ss[1].len() - 1];
-                    v.insert(s1.to_string(), 0);
+                    let name = &data[1..&data.len() - 1];
+                    v.insert(name.to_string(), 0);
                 }
             }
 
@@ -71,13 +68,29 @@ pub fn handle_protocol(id: usize, mut stream: TcpStream, leader: usize, members:
             }
 
             all.pop(); // rm last ','
-            write!(&mut ack, "{}\n", all).unwrap();
+            write!(&mut ack, "+{}\n", all).unwrap();
             if let Err(e) = stream.write_all(ack.as_bytes()) {
                 error!("[T{id}]: write_all failed: {e}");
             }
 
             return;
         }
+    }
+
+    // TODO: docs
+    if data.starts_with(CMD_SEND) {
+        let mut ack = String::new();
+        if leader > 0 {
+            write!(&mut ack, "+todo:actual-send\n").unwrap();
+        } else {
+            write!(&mut ack, "+sorry-not-leader\n").unwrap();
+        }
+
+        if let Err(e) = stream.write_all(ack.as_bytes()) {
+            error!("[T{id}]: write_all failed: {e}");
+        }
+
+        return;
     }
 
     if let Err(e) = stream.write_all(b"\n") {
