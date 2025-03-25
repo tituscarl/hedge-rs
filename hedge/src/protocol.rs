@@ -37,44 +37,42 @@ pub fn handle_protocol(id: usize, mut stream: TcpStream, leader: usize, members:
     // reply with "+{comma-separated-list-of-members}". If the payload is "*\n", sender
     // is leader, for liveness check, and we reply +1.
     if data.starts_with(CMD_PING) {
-        loop {
-            if data.len() == 2 {
-                let mut ack = String::new();
-                write!(&mut ack, "+1\n").unwrap();
-
-                if let Err(e) = stream.write_all(ack.as_bytes()) {
-                    error!("[T{id}]: write_all failed: {e}");
-                }
-
-                return;
-            }
-
-            {
-                if let Ok(mut v) = members.lock() {
-                    let name = &data[1..&data.len() - 1];
-                    v.insert(name.to_string(), 0);
-                }
-            }
-
-            let mut all = String::new();
+        if data.len() == 2 {
             let mut ack = String::new();
+            write!(&mut ack, "+1\n").unwrap();
 
-            {
-                if let Ok(v) = members.lock() {
-                    for (k, _) in &*v {
-                        write!(&mut all, "{},", k).unwrap();
-                    }
-                }
-            }
-
-            all.pop(); // rm last ','
-            write!(&mut ack, "+{}\n", all).unwrap();
             if let Err(e) = stream.write_all(ack.as_bytes()) {
                 error!("[T{id}]: write_all failed: {e}");
             }
 
             return;
         }
+
+        {
+            if let Ok(mut v) = members.lock() {
+                let name = &data[1..&data.len() - 1];
+                v.insert(name.to_string(), 0);
+            }
+        }
+
+        let mut all = String::new();
+        let mut ack = String::new();
+
+        {
+            if let Ok(v) = members.lock() {
+                for (k, _) in &*v {
+                    write!(&mut all, "{},", k).unwrap();
+                }
+            }
+        }
+
+        all.pop(); // rm last ','
+        write!(&mut ack, "+{}\n", all).unwrap();
+        if let Err(e) = stream.write_all(ack.as_bytes()) {
+            error!("[T{id}]: write_all failed: {e}");
+        }
+
+        return;
     }
 
     // TODO: docs
