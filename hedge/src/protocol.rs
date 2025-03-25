@@ -9,8 +9,8 @@ pub const LDR: &str = "LDR"; // for leader confirmation, reply="ACK"
 pub const HEY: &str = "HEY"; // heartbeat to indicate availability, fmt="HEY [id]"
 pub const ACK: &str = "ACK"; // generic reply, fmt="ACK"|"ACK base64(err)"|"ACK base64(JSON(members))"
 
-pub fn handle_protocol(id: usize, mut conn: TcpStream, leader: usize, members: Arc<Mutex<HashMap<String, usize>>>) {
-    let mut reader = BufReader::new(&conn);
+pub fn handle_protocol(id: usize, mut stream: TcpStream, leader: usize, members: Arc<Mutex<HashMap<String, usize>>>) {
+    let mut reader = BufReader::new(&stream);
     let mut data = String::new();
     reader.read_line(&mut data).unwrap();
 
@@ -25,7 +25,7 @@ pub fn handle_protocol(id: usize, mut conn: TcpStream, leader: usize, members: A
             write!(&mut ack, "\n").unwrap();
         }
 
-        if let Err(e) = conn.write_all(ack.as_bytes()) {
+        if let Err(e) = stream.write_all(ack.as_bytes()) {
             error!("[t{id}]: write_all failed: {e}");
         }
 
@@ -65,7 +65,7 @@ pub fn handle_protocol(id: usize, mut conn: TcpStream, leader: usize, members: A
 
             all.pop(); // rm last ','
             write!(&mut ack, "{}\n", all).unwrap();
-            if let Err(e) = conn.write_all(ack.as_bytes()) {
+            if let Err(e) = stream.write_all(ack.as_bytes()) {
                 error!("[t{id}]: write_all failed: {e}");
             }
 
@@ -73,7 +73,7 @@ pub fn handle_protocol(id: usize, mut conn: TcpStream, leader: usize, members: A
         }
     }
 
-    if let Err(e) = conn.write_all(b"\n") {
+    if let Err(e) = stream.write_all(b"\n") {
         error!("[t{id}]: write_all failed: {e}");
     }
 }

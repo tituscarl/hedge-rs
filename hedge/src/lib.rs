@@ -22,6 +22,12 @@ extern crate scopeguard;
 
 extern crate num_cpus;
 
+#[derive(Debug)]
+enum WorkerCtrl {
+    TcpServer(TcpStream),
+    EnsureMember { name: String, tx: Sender<usize> },
+}
+
 pub struct Op {
     db: String,
     table: String,
@@ -89,8 +95,8 @@ impl Op {
             }
         });
 
-        let (tx, rx): (Sender<TcpStream>, Receiver<TcpStream>) = unbounded();
-        let rxs: Arc<Mutex<HashMap<usize, Receiver<TcpStream>>>> = Arc::new(Mutex::new(HashMap::new()));
+        let (tx, rx): (Sender<WorkerCtrl>, Receiver<WorkerCtrl>) = unbounded();
+        let rxs: Arc<Mutex<HashMap<usize, Receiver<WorkerCtrl>>>> = Arc::new(Mutex::new(HashMap::new()));
         let cpus = num_cpus::get();
 
         for i in 0..cpus {
@@ -109,7 +115,7 @@ impl Op {
             let leader = self.leader.clone();
             thread::spawn(move || {
                 loop {
-                    let mut rx: Option<Receiver<TcpStream>> = None;
+                    let mut rx: Option<Receiver<WorkerCtrl>> = None;
 
                     {
                         let rxval = match recv.lock() {
@@ -125,15 +131,21 @@ impl Op {
                         }
                     }
 
-                    let conn = rx.unwrap().recv().unwrap();
-                    let start = Instant::now();
+                    match rx.unwrap().recv().unwrap() {
+                        WorkerCtrl::TcpServer(stream) => {
+                            let start = Instant::now();
 
-                    defer! {
-                        info!("[t{i}] took {:?}", start.elapsed());
+                            defer! {
+                                info!("[t{i}] took {:?}", start.elapsed());
+                            }
+
+                            // Pass along to our worker threads.
+                            handle_protocol(i, stream, leader.load(Ordering::Acquire), members.clone());
+                        }
+                        WorkerCtrl::EnsureMember { name, tx } => {
+                            info!("todo: ensure for {name}");
+                        }
                     }
-
-                    // Pass along to our worker threads.
-                    handle_protocol(i, conn, leader.load(Ordering::Acquire), members.clone());
                 }
             });
         }
@@ -153,7 +165,7 @@ impl Op {
                     }
                 };
 
-                tx_tcp.send(stream).unwrap();
+                tx_tcp.send(WorkerCtrl::TcpServer(stream)).unwrap();
             }
         });
 
@@ -163,6 +175,7 @@ impl Op {
             sync_ms = lease_ms;
         }
 
+        let tx_ensure = tx.clone();
         let lock = self.lock[0].clone();
         let leader_track = self.leader.clone();
         let id = self.id.clone();
@@ -183,7 +196,20 @@ impl Op {
                 }
 
                 if leader_track.load(Ordering::Acquire) == 1 {
-                    info!("todo: ensure members here")
+                    let mut mm: Vec<String> = Vec::new();
+
+                    {
+                        if let Ok(v) = members.clone().lock() {
+                            for (k, _) in &*v {
+                                mm.push(k.clone());
+                            }
+                        }
+                    }
+
+                    for m in mm {
+                        let (tx, _rx): (Sender<usize>, Receiver<usize>) = unbounded();
+                        tx_ensure.send(WorkerCtrl::EnsureMember { name: m, tx }).unwrap();
+                    }
                 } else {
                     let mut leader = String::new();
 
