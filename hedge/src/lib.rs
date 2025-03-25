@@ -122,6 +122,11 @@ impl Op {
             let recv = rxs.clone();
             let members = self.members.clone();
             let leader = self.leader.clone();
+            let toleader = match self.tx_toleader.clone() {
+                Some(v) => vec![v.clone()],
+                None => vec![],
+            };
+
             thread::spawn(move || {
                 loop {
                     let mut rx: Option<Receiver<WorkerCtrl>> = None;
@@ -148,7 +153,13 @@ impl Op {
                                 info!("[T{i}]: tcp took {:?}", start.elapsed());
                             }
 
-                            handle_protocol(i, stream, leader.load(Ordering::Acquire), members.clone());
+                            handle_protocol(
+                                i,
+                                stream,
+                                leader.load(Ordering::Acquire),
+                                members.clone(),
+                                toleader.clone(),
+                            );
                         }
                         WorkerCtrl::PingMember(name) => {
                             let mut delete = false;

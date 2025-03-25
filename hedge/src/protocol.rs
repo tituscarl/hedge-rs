@@ -3,14 +3,22 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::{BufReader, prelude::*};
 use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
+
+use crate::LeaderChannel;
 
 pub const CMD_CLDR: &str = "#"; // for leader confirmation, reply="+<1|0>"
 pub const CMD_PING: &str = "*"; // heartbeat to indicate availability, fmt="+[id]"
 pub const CMD_SEND: &str = "$"; // member to leader, fmt="$<base64(payload)>"
 
 // Replies starts with either '+' or '-'; '+' = success, '-' = error.
-pub fn handle_protocol(id: usize, mut stream: TcpStream, leader: usize, members: Arc<Mutex<HashMap<String, usize>>>) {
+pub fn handle_protocol(
+    id: usize,
+    mut stream: TcpStream,
+    leader: usize,
+    members: Arc<Mutex<HashMap<String, usize>>>,
+    toleader: Vec<mpsc::Sender<LeaderChannel>>,
+) {
     let mut reader = BufReader::new(&stream);
     let mut data = String::new();
     reader.read_line(&mut data).unwrap();
@@ -77,6 +85,17 @@ pub fn handle_protocol(id: usize, mut stream: TcpStream, leader: usize, members:
 
     // TODO: docs
     if data.starts_with(CMD_SEND) {
+        let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
+        if let Err(e) = toleader[0].send(LeaderChannel::ToLeader {
+            msg: "zz".as_bytes().to_vec(),
+            tx,
+        }) {
+            error!("send failed: {e}");
+        } else {
+            let rep = rx.recv().unwrap();
+            info!(">>>>> reply from main: {:?}", String::from_utf8(rep));
+        }
+
         let mut ack = String::new();
         if leader > 0 {
             write!(&mut ack, "+todo:actual-send\n").unwrap();
@@ -91,7 +110,7 @@ pub fn handle_protocol(id: usize, mut stream: TcpStream, leader: usize, members:
         return;
     }
 
-    if let Err(e) = stream.write_all(b"\n") {
+    if let Err(e) = stream.write_all(b"-unknown\n") {
         error!("[T{id}]: write_all failed: {e}");
     }
 }

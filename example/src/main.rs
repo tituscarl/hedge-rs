@@ -35,11 +35,10 @@ fn main() -> Result<()> {
         loop {
             match rx_leader.recv().unwrap() {
                 LeaderChannel::ToLeader { msg, tx } => {
-                    info!("received by leader: {:?}", msg)
+                    info!(">>>>> received by leader: {:?}", String::from_utf8(msg));
+                    tx.send("xx".as_bytes().to_vec()).unwrap();
                 }
             }
-
-            break;
         }
     });
 
