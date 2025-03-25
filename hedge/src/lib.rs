@@ -1,8 +1,7 @@
 mod protocol;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use exp_backoff::BackoffBuilder;
 use log::*;
 use protocol::*;
 use spindle_rs::*;
@@ -307,6 +306,7 @@ impl Op {
                         let mm: Vec<&str> = resp[..resp.len() - 1].split(",").collect();
                         if mm.len() > 0 {
                             if let Ok(mut v) = members.clone().lock() {
+                                v.clear();
                                 for m in mm {
                                     if m.len() > 0 && !m.starts_with(ACK) {
                                         v.insert(m.to_string(), 0);
