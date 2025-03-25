@@ -25,7 +25,7 @@ extern crate num_cpus;
 #[derive(Debug)]
 enum WorkerCtrl {
     TcpServer(TcpStream),
-    EnsureMember { name: String, tx: Sender<usize> },
+    PingMember(String),
 }
 
 pub struct Op {
@@ -121,7 +121,7 @@ impl Op {
                         let rxval = match recv.lock() {
                             Ok(v) => v,
                             Err(e) => {
-                                error!("t{i}: lock failed: {e}");
+                                error!("T{i}: lock failed: {e}");
                                 break;
                             }
                         };
@@ -136,14 +136,64 @@ impl Op {
                             let start = Instant::now();
 
                             defer! {
-                                info!("[t{i}] took {:?}", start.elapsed());
+                                info!("[T{i}]: tcp took {:?}", start.elapsed());
                             }
 
-                            // Pass along to our worker threads.
                             handle_protocol(i, stream, leader.load(Ordering::Acquire), members.clone());
                         }
-                        WorkerCtrl::EnsureMember { name, tx } => {
-                            info!("todo: ensure for {name}");
+                        WorkerCtrl::PingMember(name) => {
+                            let mut delete = false;
+                            let start = Instant::now();
+
+                            defer! {
+                                info!("[T{i}]: ping took {:?}", start.elapsed());
+                            }
+
+                            'onetime: loop {
+                                let hp: Vec<&str> = name.split(":").collect();
+                                let hh: Vec<&str> = hp[0].split(".").collect();
+                                let ip = SocketAddr::new(
+                                    IpAddr::V4(Ipv4Addr::new(
+                                        hh[0].parse::<u8>().unwrap(),
+                                        hh[1].parse::<u8>().unwrap(),
+                                        hh[2].parse::<u8>().unwrap(),
+                                        hh[3].parse::<u8>().unwrap(),
+                                    )),
+                                    hp[1].parse::<u16>().unwrap(),
+                                );
+
+                                let mut stream = match TcpStream::connect_timeout(&ip, Duration::from_secs(5)) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        error!("connect_timeout to {name} failed: {e}");
+                                        delete = true;
+                                        break 'onetime;
+                                    }
+                                };
+
+                                let mut send = String::new();
+                                write!(&mut send, "{}\n", HEY).unwrap();
+                                if let Err(_) = stream.write_all(send.as_bytes()) {
+                                    break 'onetime;
+                                }
+
+                                let mut reader = BufReader::new(&stream);
+                                let mut resp = String::new();
+                                reader.read_line(&mut resp).unwrap();
+
+                                if !resp.starts_with(ACK) {
+                                    delete = true
+                                }
+
+                                break 'onetime;
+                            }
+
+                            if delete {
+                                let members = members.clone();
+                                if let Ok(mut v) = members.lock() {
+                                    v.remove(&name);
+                                }
+                            }
                         }
                     }
                 }
@@ -196,6 +246,7 @@ impl Op {
                 }
 
                 if leader_track.load(Ordering::Acquire) == 1 {
+                    // We are leader. Ensure liveness of all members.
                     let mut mm: Vec<String> = Vec::new();
 
                     {
@@ -206,11 +257,11 @@ impl Op {
                         }
                     }
 
-                    for m in mm {
-                        let (tx, _rx): (Sender<usize>, Receiver<usize>) = unbounded();
-                        tx_ensure.send(WorkerCtrl::EnsureMember { name: m, tx }).unwrap();
+                    for name in mm {
+                        tx_ensure.send(WorkerCtrl::PingMember(name)).unwrap();
                     }
                 } else {
+                    // We're not leader. Send heartbeats to leader.
                     let mut leader = String::new();
 
                     {
@@ -239,7 +290,7 @@ impl Op {
                     let mut stream = match TcpStream::connect_timeout(&leader_ip, Duration::from_secs(5)) {
                         Ok(v) => v,
                         Err(e) => {
-                            error!("connect failed: {e}");
+                            error!("connect_timeout failed: {e}");
                             continue;
                         }
                     };
@@ -264,7 +315,7 @@ impl Op {
                             }
                         }
 
-                        // TODO: Remove these logs.
+                        // TODO: use debug!().
                         {
                             if let Ok(v) = members.clone().lock() {
                                 for (k, _) in &*v {

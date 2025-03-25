@@ -14,7 +14,7 @@ pub fn handle_protocol(id: usize, mut stream: TcpStream, leader: usize, members:
     let mut data = String::new();
     reader.read_line(&mut data).unwrap();
 
-    info!("[t{id}]: request: {data:?}");
+    info!("[T{id}]: request: {data:?}");
 
     // Confirm if we are leader. Reply with ACK if so, otherwise, empty.
     if data.starts_with(LDR) {
@@ -26,27 +26,28 @@ pub fn handle_protocol(id: usize, mut stream: TcpStream, leader: usize, members:
         }
 
         if let Err(e) = stream.write_all(ack.as_bytes()) {
-            error!("[t{id}]: write_all failed: {e}");
+            error!("[T{id}]: write_all failed: {e}");
         }
 
         return;
     }
 
-    // Heartbeat. If leader, reply with list of members, including sender.
+    // Heartbeat. If the payload is "HEY <name>\n", sender is non-leader.
+    // If the payload is "HEY\n", sender is leader, for liveness check.
     if data.starts_with(HEY) {
         'onetime: loop {
-            if leader == 0 {
+            let ss: Vec<&str> = data.split(" ").collect();
+            if ss.len() == 1 {
                 let mut ack = String::new();
                 write!(&mut ack, "{}\n", ACK).unwrap();
 
                 if let Err(e) = stream.write_all(ack.as_bytes()) {
-                    error!("[t{id}]: write_all failed: {e}");
+                    error!("[T{id}]: write_all failed: {e}");
                 }
 
                 return;
             }
 
-            let ss: Vec<&str> = data.split(" ").collect();
             if ss.len() != 2 {
                 break 'onetime;
             }
@@ -72,7 +73,7 @@ pub fn handle_protocol(id: usize, mut stream: TcpStream, leader: usize, members:
             all.pop(); // rm last ','
             write!(&mut ack, "{}\n", all).unwrap();
             if let Err(e) = stream.write_all(ack.as_bytes()) {
-                error!("[t{id}]: write_all failed: {e}");
+                error!("[T{id}]: write_all failed: {e}");
             }
 
             return;
@@ -80,6 +81,6 @@ pub fn handle_protocol(id: usize, mut stream: TcpStream, leader: usize, members:
     }
 
     if let Err(e) = stream.write_all(b"\n") {
-        error!("[t{id}]: write_all failed: {e}");
+        error!("[T{id}]: write_all failed: {e}");
     }
 }
