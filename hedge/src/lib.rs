@@ -89,36 +89,42 @@ impl Op {
         });
 
         let (tx, rx): (Sender<TcpStream>, Receiver<TcpStream>) = unbounded();
-        let recvs = Arc::new(Mutex::new(Vec::new()));
+        let rxs: Arc<Mutex<HashMap<usize, Receiver<TcpStream>>>> = Arc::new(Mutex::new(HashMap::new()));
         let cpus = num_cpus::get();
 
-        for _ in 0..cpus {
-            let recv = recvs.clone();
+        for i in 0..cpus {
+            let recv = rxs.clone();
 
             {
                 let mut rv = recv.lock().unwrap();
-                rv.push(rx.clone());
+                rv.insert(i, rx.clone());
             }
         }
 
         // Start our worker threads for our TCP server.
         for i in 0..cpus {
-            let recv = recvs.clone();
+            let recv = rxs.clone();
             let members = self.members.clone();
             let leader = self.leader.clone();
             thread::spawn(move || {
                 loop {
-                    let rx = match recv.lock() {
-                        Ok(v) => v,
-                        Err(e) => {
-                            error!("t{i}: lock failed: {e}");
-                            break;
+                    let mut rx: Option<Receiver<TcpStream>> = None;
+
+                    {
+                        let rxval = match recv.lock() {
+                            Ok(v) => v,
+                            Err(e) => {
+                                error!("t{i}: lock failed: {e}");
+                                break;
+                            }
+                        };
+
+                        if let Some(v) = rxval.get(&i) {
+                            rx = Some(v.clone());
                         }
-                    };
+                    }
 
-                    let conn = rx[i].recv().unwrap();
-                    drop(rx); // no need to wait
-
+                    let conn = rx.unwrap().recv().unwrap();
                     let start = Instant::now();
 
                     defer! {
