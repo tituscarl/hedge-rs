@@ -20,7 +20,7 @@ fn main() -> Result<()> {
     let mut op = OpBuilder::new()
         .db(args[1].clone())
         .table(args[2].clone())
-        .name("spindle-rs".to_string())
+        .name("hedge-rs".to_string())
         .id(args[3].to_string())
         .lease_ms(3_000)
         .build();
@@ -33,7 +33,8 @@ fn main() -> Result<()> {
 
     info!("cleaning up...");
     op.close();
-    thread::sleep(Duration::from_secs(1));
+
+    thread::sleep(Duration::from_millis(500));
 
     Ok(())
 }

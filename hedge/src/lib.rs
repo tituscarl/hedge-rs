@@ -41,6 +41,7 @@ impl Op {
         OpBuilder::default()
     }
 
+    /// TODO:
     pub fn run(&mut self) -> Result<()> {
         {
             let members = self.members.clone();
@@ -245,6 +246,38 @@ impl Op {
         Ok(())
     }
 
+    /// Returns true if this instance got the lock, together with the name and lock token.
+    pub fn has_lock(&self) -> (bool, String, u64) {
+        let active = self.active.clone();
+        if active.load(Ordering::Acquire) == 0 {
+            return (false, String::from(""), 0);
+        }
+
+        let lock = self.lock[0].clone();
+        if let Ok(v) = lock.lock() {
+            return v.has_lock();
+        }
+
+        return (false, String::from(""), 0);
+    }
+
+    /// Returns a list of current members in the group/cluster.
+    pub fn members(&mut self) -> Vec<String> {
+        let mut ret: Vec<String> = Vec::new();
+        let active = self.active.clone();
+        if active.load(Ordering::Acquire) == 0 {
+            return ret;
+        }
+
+        if let Ok(v) = self.members.lock() {
+            for (k, _) in &*v {
+                ret.push(k.clone());
+            }
+        }
+
+        return ret;
+    }
+
     pub fn close(&mut self) {
         let lock = self.lock[0].clone();
         if let Ok(mut v) = lock.lock() {
@@ -269,31 +302,37 @@ impl OpBuilder {
         OpBuilder::default()
     }
 
+    /// Sets the internal lock's Spanner database URL.
     pub fn db(mut self, db: String) -> OpBuilder {
         self.db = db;
         self
     }
 
+    /// Sets the internal lock's Spanner table for backing storage.
     pub fn table(mut self, table: String) -> OpBuilder {
         self.table = table;
         self
     }
 
+    /// Sets the internal lock name.
     pub fn name(mut self, name: String) -> OpBuilder {
         self.name = name;
         self
     }
 
+    /// Sets this instance (or node) id. Format should be `host:port`.
     pub fn id(mut self, id: String) -> OpBuilder {
         self.id = id;
         self
     }
 
+    /// Sets the internal lock's leader lease timeout.
     pub fn lease_ms(mut self, ms: u64) -> OpBuilder {
         self.lease_ms = ms;
         self
     }
 
+    /// Sets the timeout for syncing member info across the group.
     pub fn sync_ms(mut self, ms: u64) -> OpBuilder {
         self.sync_ms = ms;
         self
@@ -325,5 +364,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_run() {}
+    fn no_run() {
+        let op = OpBuilder::new()
+            .db("projects/p/instances/i/databases/db".to_string())
+            .table("locktable".to_string())
+            .name("hedge-rs".to_string())
+            .id(":8080".to_string())
+            .lease_ms(3_000)
+            .build();
+
+        let (locked, _, token) = op.has_lock();
+        assert_eq!(locked, false);
+        assert_eq!(token, 0);
+    }
 }
