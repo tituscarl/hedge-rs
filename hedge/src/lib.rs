@@ -9,7 +9,7 @@ use spindle_rs::*;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::{BufReader, prelude::*};
-use std::net::{TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -224,7 +224,19 @@ impl Op {
                         continue;
                     }
 
-                    let mut stream = match TcpStream::connect(leader) {
+                    let hp: Vec<&str> = leader.split(":").collect();
+                    let hh: Vec<&str> = hp[0].split(".").collect();
+                    let leader_ip = SocketAddr::new(
+                        IpAddr::V4(Ipv4Addr::new(
+                            hh[0].parse::<u8>().unwrap(),
+                            hh[1].parse::<u8>().unwrap(),
+                            hh[2].parse::<u8>().unwrap(),
+                            hh[3].parse::<u8>().unwrap(),
+                        )),
+                        hp[1].parse::<u16>().unwrap(),
+                    );
+
+                    let mut stream = match TcpStream::connect_timeout(&leader_ip, Duration::from_secs(5)) {
                         Ok(v) => v,
                         Err(e) => {
                             error!("connect failed: {e}");
@@ -233,7 +245,7 @@ impl Op {
                     };
 
                     let mut send = String::new();
-                    write!(&mut send, "{} {}\n", protocol::HEY, id).unwrap();
+                    write!(&mut send, "{} {}\n", HEY, id).unwrap();
                     if let Ok(_) = stream.write_all(send.as_bytes()) {
                         let mut reader = BufReader::new(&stream);
                         let mut resp = String::new();
@@ -245,7 +257,7 @@ impl Op {
                         if mm.len() > 0 {
                             if let Ok(mut v) = members.clone().lock() {
                                 for m in mm {
-                                    if m.len() > 0 {
+                                    if m.len() > 0 && !m.starts_with(ACK) {
                                         v.insert(m.to_string(), 0);
                                     }
                                 }

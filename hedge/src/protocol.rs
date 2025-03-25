@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 pub const LDR: &str = "LDR"; // for leader confirmation, reply="ACK"
 pub const HEY: &str = "HEY"; // heartbeat to indicate availability, fmt="HEY [id]"
-pub const ACK: &str = "ACK"; // generic reply, fmt="ACK"|"ACK base64(err)"|"ACK base64(JSON(members))"
+pub const ACK: &str = "ACK"; // generic reply, fmt="ACK"|"ACK base64(err)"
 
 pub fn handle_protocol(id: usize, mut stream: TcpStream, leader: usize, members: Arc<Mutex<HashMap<String, usize>>>) {
     let mut reader = BufReader::new(&stream);
@@ -32,12 +32,18 @@ pub fn handle_protocol(id: usize, mut stream: TcpStream, leader: usize, members:
         return;
     }
 
-    // We should be leader here. Member heartbeat.
-    // Reply with list of members, including sender.
+    // Heartbeat. If leader, reply with list of members, including sender.
     if data.starts_with(HEY) {
         'onetime: loop {
-            if leader < 1 {
-                break 'onetime;
+            if leader == 0 {
+                let mut ack = String::new();
+                write!(&mut ack, "{}\n", ACK).unwrap();
+
+                if let Err(e) = stream.write_all(ack.as_bytes()) {
+                    error!("[t{id}]: write_all failed: {e}");
+                }
+
+                return;
             }
 
             let ss: Vec<&str> = data.split(" ").collect();
