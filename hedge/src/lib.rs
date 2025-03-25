@@ -1,12 +1,12 @@
+mod protocol;
+
 use anyhow::{Result, anyhow};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use exp_backoff::BackoffBuilder;
-use google_cloud_spanner::client::Client;
-use google_cloud_spanner::client::ClientConfig;
-use google_cloud_spanner::statement::Statement;
-use google_cloud_spanner::value::CommitTimestamp;
 use log::*;
+use protocol::*;
 use spindle_rs::*;
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::{BufReader, prelude::*};
 use std::net::{TcpListener, TcpStream};
@@ -15,42 +15,12 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use time::OffsetDateTime;
-use tokio::runtime::Runtime;
 use uuid::Uuid;
-
-mod protocol;
 
 #[macro_use(defer)]
 extern crate scopeguard;
 
 extern crate num_cpus;
-
-#[derive(Debug)]
-struct DiffToken {
-    diff: i64,
-    token: i128,
-}
-
-#[derive(Debug)]
-struct Record {
-    name: String,
-    heartbeat: i128,
-    token: i128,
-    writer: String,
-}
-
-#[derive(Debug)]
-enum ProtoCtrl {
-    Exit,
-    Dummy(Sender<bool>),
-    InitialLock(Sender<i128>),
-    NextLockInsert { name: String, tx: Sender<i128> },
-    NextLockUpdate { token: i128, tx: Sender<i128> },
-    CheckLock(Sender<DiffToken>),
-    CurrentToken(Sender<Record>),
-    Heartbeat(Sender<i128>),
-}
 
 pub struct Op {
     db: String,
@@ -59,9 +29,10 @@ pub struct Op {
     id: String,
     lock: Vec<Arc<Mutex<Lock>>>,
     leader: Arc<AtomicUsize>,
-    duration_ms: u64,
+    lease_ms: u64,
+    sync_ms: u64,
+    members: Arc<Mutex<HashMap<String, usize>>>,
     active: Arc<AtomicUsize>,
-    tx_ctrl: Vec<Sender<ProtoCtrl>>,
 }
 
 impl Op {
@@ -71,8 +42,21 @@ impl Op {
     }
 
     pub fn run(&mut self) -> Result<()> {
+        {
+            let members = self.members.clone();
+            let id = self.id.clone();
+            if let Ok(mut v) = members.lock() {
+                v.insert(id, 0);
+            }
+        }
+
         let mut lock_name = String::new();
         write!(&mut lock_name, "hedge/spindle/{}", self.name.clone()).unwrap();
+        let mut lease_ms = self.lease_ms;
+        if lease_ms == 0 {
+            lease_ms = 3_000;
+        }
+
         let (tx_ldr, rx_ldr) = mpsc::channel();
         self.lock = vec![Arc::new(Mutex::new(
             LockBuilder::new()
@@ -80,7 +64,7 @@ impl Op {
                 .table(self.table.clone())
                 .name(lock_name)
                 .id(self.id.clone())
-                .duration_ms(3000)
+                .lease_ms(lease_ms)
                 .leader_tx(Some(tx_ldr))
                 .build(),
         ))];
@@ -92,12 +76,13 @@ impl Op {
             }
         }
 
-        let leader = self.leader.clone();
+        // We will use the channel-style callback from spindle_rs.
+        let leader_setter = self.leader.clone();
         thread::spawn(move || {
             loop {
                 let ldr = rx_ldr.recv();
                 match ldr {
-                    Ok(v) => leader.store(v, Ordering::Relaxed),
+                    Ok(v) => leader_setter.store(v, Ordering::Relaxed),
                     Err(_) => {}
                 }
             }
@@ -116,9 +101,10 @@ impl Op {
             }
         }
 
-        // Initialize our workers for our TCP server.
+        // Start our worker threads for our TCP server.
         for i in 0..cpus {
             let recv = recvs.clone();
+            let members = self.members.clone();
             let leader = self.leader.clone();
             thread::spawn(move || {
                 loop {
@@ -126,7 +112,7 @@ impl Op {
                         Ok(v) => v,
                         Err(e) => {
                             error!("t{i}: lock failed: {e}");
-                            continue;
+                            break;
                         }
                     };
 
@@ -139,7 +125,8 @@ impl Op {
                         info!("[t{i}] took {:?}", start.elapsed());
                     }
 
-                    protocol::handle_protocol(i, conn, leader.load(Ordering::Acquire));
+                    // Pass along to our worker threads.
+                    handle_protocol(i, conn, leader.load(Ordering::Acquire), members.clone());
                 }
             });
         }
@@ -194,6 +181,66 @@ impl Op {
             }
         });
 
+        // Start the member tracking and heartbeating thread.
+        let mut sync_ms = self.sync_ms;
+        if sync_ms == 0 {
+            sync_ms = lease_ms;
+        }
+
+        let lock = self.lock[0].clone();
+        let leader_track = self.leader.clone();
+        let id = self.id.clone();
+        thread::spawn(move || {
+            loop {
+                let start = Instant::now();
+
+                defer! {
+                    let mut pause = sync_ms;
+                    let latency = start.elapsed().as_millis() as u64;
+                    if latency < sync_ms && (pause-latency) > 0 {
+                        pause -= latency;
+                    }
+
+                    info!("members took {:?}", start.elapsed());
+                    thread::sleep(Duration::from_millis(pause));
+                }
+
+                if leader_track.load(Ordering::Acquire) == 1 {
+                    info!("todo: ensure members here")
+                } else {
+                    let mut leader = String::new();
+
+                    {
+                        if let Ok(v) = lock.lock() {
+                            let (_, writer, _) = v.has_lock();
+                            write!(&mut leader, "{}", writer).unwrap();
+                        }
+                    }
+
+                    if leader.is_empty() {
+                        continue;
+                    }
+
+                    let mut stream = match TcpStream::connect(leader) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            error!("connect failed: {e}");
+                            continue;
+                        }
+                    };
+
+                    let mut send = String::new();
+                    write!(&mut send, "{} {}\n", protocol::HEY, id).unwrap();
+                    if let Ok(_) = stream.write_all(send.as_bytes()) {
+                        let mut reader = BufReader::new(&stream);
+                        let mut data = String::new();
+                        reader.read_line(&mut data).unwrap();
+                        info!("response: {data:?}");
+                    }
+                }
+            }
+        });
+
         // Finally, set the system active.
         let active = self.active.clone();
         active.store(1, Ordering::Relaxed);
@@ -202,8 +249,8 @@ impl Op {
     }
 
     pub fn close(&mut self) {
-        let lc = self.lock[0].clone();
-        if let Ok(mut v) = lc.lock() {
+        let lock = self.lock[0].clone();
+        if let Ok(mut v) = lock.lock() {
             v.close();
         }
     }
@@ -216,7 +263,8 @@ pub struct OpBuilder {
     table: String,
     name: String,
     id: String,
-    duration_ms: u64,
+    lease_ms: u64,
+    sync_ms: u64,
 }
 
 impl OpBuilder {
@@ -244,8 +292,13 @@ impl OpBuilder {
         self
     }
 
-    pub fn duration_ms(mut self, ms: u64) -> OpBuilder {
-        self.duration_ms = ms;
+    pub fn lease_ms(mut self, ms: u64) -> OpBuilder {
+        self.lease_ms = ms;
+        self
+    }
+
+    pub fn sync_ms(mut self, ms: u64) -> OpBuilder {
+        self.sync_ms = ms;
         self
     }
 
@@ -262,9 +315,10 @@ impl OpBuilder {
             },
             lock: vec![],
             leader: Arc::new(AtomicUsize::new(0)),
-            duration_ms: self.duration_ms,
+            lease_ms: self.sync_ms,
+            sync_ms: self.sync_ms,
+            members: Arc::new(Mutex::new(HashMap::new())),
             active: Arc::new(AtomicUsize::new(0)),
-            tx_ctrl: vec![],
         }
     }
 }

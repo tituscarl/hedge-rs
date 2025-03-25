@@ -10,8 +10,8 @@ fn main() -> Result<()> {
     env_logger::init();
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 3 {
-        error!("provide the db and table args");
+    if args.len() < 4 {
+        error!("provide the db, table, and id args");
         return Ok(());
     }
 
@@ -21,8 +21,8 @@ fn main() -> Result<()> {
         .db(args[1].clone())
         .table(args[2].clone())
         .name("spindle-rs".to_string())
-        .id("0.0.0.0:8080".to_string())
-        .duration_ms(3000)
+        .id(args[3].to_string())
+        .lease_ms(3_000)
         .build();
 
     op.run()?;
