@@ -16,7 +16,7 @@ pub fn handle_protocol(id: usize, mut conn: TcpStream, leader: usize, members: A
 
     info!("[t{id}]: request: {data:?}");
 
-    // Reply with ACK.
+    // Confirm if we are leader. Reply with ACK if so, otherwise, empty.
     if data.starts_with(LDR) {
         let mut ack = String::new();
         if leader > 0 {
@@ -32,9 +32,14 @@ pub fn handle_protocol(id: usize, mut conn: TcpStream, leader: usize, members: A
         return;
     }
 
+    // We should be leader here. Member heartbeat.
     // Reply with list of members, including sender.
     if data.starts_with(HEY) {
         'onetime: loop {
+            if leader < 1 {
+                break 'onetime;
+            }
+
             let ss: Vec<&str> = data.split(" ").collect();
             if ss.len() != 2 {
                 break 'onetime;
@@ -47,21 +52,24 @@ pub fn handle_protocol(id: usize, mut conn: TcpStream, leader: usize, members: A
                 }
             }
 
+            let mut all = String::new();
             let mut ack = String::new();
 
             {
                 if let Ok(v) = members.lock() {
                     for (k, _) in &*v {
-                        write!(&mut ack, "{},", k).unwrap();
+                        write!(&mut all, "{},", k).unwrap();
                     }
                 }
             }
 
-            if let Err(e) = conn.write_all(ack[..ack.len() - 1].as_bytes()) {
+            all.pop(); // rm last ','
+            write!(&mut ack, "{}\n", all).unwrap();
+            if let Err(e) = conn.write_all(ack.as_bytes()) {
                 error!("[t{id}]: write_all failed: {e}");
             }
 
-            break 'onetime;
+            return;
         }
     }
 

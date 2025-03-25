@@ -150,37 +150,6 @@ impl Op {
             }
         });
 
-        // Test our internal TCP server.
-        let host_test = self.id.clone();
-        thread::spawn(move || {
-            let hp: Vec<&str> = host_test.split(":").collect();
-            for i in 0..cpus {
-                thread::sleep(Duration::from_secs(2));
-                let mut host = String::new();
-                write!(&mut host, "127.0.0.1:{}", hp[1]).unwrap();
-                let mut stream = match TcpStream::connect(host) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        error!("[{i}]: connect failed: {e}");
-                        continue;
-                    }
-                };
-
-                let mut send = String::new();
-                if i == 4 {
-                    write!(&mut send, "{}\n", protocol::LDR).unwrap();
-                } else {
-                    write!(&mut send, "hello_{i}\n").unwrap();
-                }
-                if let Ok(_) = stream.write_all(send.as_bytes()) {
-                    let mut reader = BufReader::new(&stream);
-                    let mut data = String::new();
-                    reader.read_line(&mut data).unwrap();
-                    info!("[{i}]: response: {data:?}");
-                }
-            }
-        });
-
         // Start the member tracking and heartbeating thread.
         let mut sync_ms = self.sync_ms;
         if sync_ms == 0 {
@@ -190,6 +159,7 @@ impl Op {
         let lock = self.lock[0].clone();
         let leader_track = self.leader.clone();
         let id = self.id.clone();
+        let members = self.members.clone();
         thread::spawn(move || {
             loop {
                 let start = Instant::now();
@@ -233,9 +203,30 @@ impl Op {
                     write!(&mut send, "{} {}\n", protocol::HEY, id).unwrap();
                     if let Ok(_) = stream.write_all(send.as_bytes()) {
                         let mut reader = BufReader::new(&stream);
-                        let mut data = String::new();
-                        reader.read_line(&mut data).unwrap();
-                        info!("response: {data:?}");
+                        let mut resp = String::new();
+                        reader.read_line(&mut resp).unwrap();
+
+                        info!("response: {resp:?}");
+
+                        let mm: Vec<&str> = resp[..resp.len() - 1].split(",").collect();
+                        if mm.len() > 0 {
+                            if let Ok(mut v) = members.clone().lock() {
+                                for m in mm {
+                                    if m.len() > 0 {
+                                        v.insert(m.to_string(), 0);
+                                    }
+                                }
+                            }
+                        }
+
+                        // TODO: Remove these logs.
+                        {
+                            if let Ok(v) = members.clone().lock() {
+                                for (k, _) in &*v {
+                                    info!("current members: {}", k);
+                                }
+                            }
+                        }
                     }
                 }
             }
