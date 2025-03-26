@@ -34,18 +34,21 @@ $ cd hedge-rs/
 $ cargo build
 
 # Run the first instance:
+# (Use your actual values)
 $ RUST_LOG=info,spindle_rs=off ./target/debug/example \
   projects/p/instances/i/databases/db \
   locktable \
   0.0.0.0:8080
 
 # Run this 2nd instance on a different terminal:
+# (Use your actual values)
 $ RUST_LOG=info,spindle_rs=off ./target/debug/example \
   projects/p/instances/i/databases/db \
   locktable \
   0.0.0.0:8081
 
 # Run this 3nd instance on a different terminal:
+# (Use your actual values)
 $ RUST_LOG=info,spindle_rs=off ./target/debug/example \
   projects/p/instances/i/databases/db \
   locktable \
