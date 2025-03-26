@@ -1,3 +1,5 @@
+[![main](https://github.com/flowerinthenight/hedge-rs/actions/workflows/main.yml/badge.svg)](https://github.com/flowerinthenight/hedge-rs/actions/workflows/main.yml)
+
 ## hedge-rs
 
 A cluster membership Rust library. It is built on [spindle-rs](https://github.com/flowerinthenight/spindle-rs), a distributed locking library built on [Cloud Spanner](https://cloud.google.com/spanner/) and [TrueTime](https://cloud.google.com/spanner/docs/true-time-external-consistency). It is a port (subset only) of [hedge](https://github.com/flowerinthenight/hedge). Ported features include:
