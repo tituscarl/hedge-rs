@@ -19,6 +19,9 @@ fn main() -> Result<()> {
     let (tx, rx) = channel();
     ctrlc::set_handler(move || tx.send(()).unwrap())?;
 
+    // We will use this channel for the 'toleader' feature; ability to send messages to the
+    // current leader. Use Sender as input to 'toleader', then we read replies through the
+    // Receiver channel.
     let (tx_leader, rx_leader): (Sender<LeaderChannel>, Receiver<LeaderChannel>) = channel();
 
     let mut op = OpBuilder::new()
@@ -32,6 +35,7 @@ fn main() -> Result<()> {
 
     op.run()?;
 
+    // This is our 'toleader' handler. This will only run when the node is the leader.
     thread::spawn(move || {
         loop {
             match rx_leader.recv().unwrap() {
@@ -46,6 +50,7 @@ fn main() -> Result<()> {
     });
 
     thread::sleep(Duration::from_millis(5000));
+
     match op.send("hello".as_bytes().to_vec()) {
         Ok(v) => info!("reply from leader: {}", String::from_utf8(v).unwrap()),
         Err(e) => error!("send failed: {e}"),
@@ -55,9 +60,7 @@ fn main() -> Result<()> {
     info!("Ctrl-C to exit:");
     rx.recv()?;
 
-    info!("cleaning up...");
     op.close();
-
     thread::sleep(Duration::from_millis(500));
 
     Ok(())
