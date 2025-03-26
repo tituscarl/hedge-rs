@@ -682,18 +682,21 @@ impl OpBuilder {
         self
     }
 
-    /// TODO:
+    /// Sets the channel for the `send()` API. Caller can use the Receiver pair
+    /// to listen to messages from other nodes when the node is the leader.
     pub fn tx_toleader(mut self, tx: Option<mpsc::Sender<Comms>>) -> OpBuilder {
         self.tx_toleader = tx;
         self
     }
 
-    /// TODO:
+    /// Sets the channel for the `broadcast()` API. Caller can use the Receiver
+    /// pair to listen to broadcast messages from any node.
     pub fn tx_broadcast(mut self, tx: Option<mpsc::Sender<Comms>>) -> OpBuilder {
         self.tx_broadcast = tx;
         self
     }
 
+    /// Builds the final `Op` object.
     pub fn build(self) -> Op {
         Op {
             db: self.db,
