@@ -27,10 +27,23 @@ pub enum Comms {
 }
 
 #[derive(Debug)]
+pub enum Broadcast {
+    ReplyStream { id: String, msg: Vec<u8>, error: bool },
+}
+
+#[derive(Debug)]
 enum WorkerCtrl {
     TcpServer(TcpStream),
     PingMember(String),
-    ToLeader { msg: Vec<u8>, tx: Sender<Vec<u8>> },
+    ToLeader {
+        msg: Vec<u8>,
+        tx: Sender<Vec<u8>>,
+    },
+    Broadcast {
+        name: String,
+        msg: Vec<u8>,
+        tx: Sender<Vec<u8>>,
+    },
 }
 
 pub struct Op {
@@ -128,6 +141,10 @@ impl Op {
                 Some(v) => vec![v.clone()],
                 None => vec![],
             };
+            let broadcast = match self.tx_broadcast.clone() {
+                Some(v) => vec![v.clone()],
+                None => vec![],
+            };
 
             thread::spawn(move || {
                 loop {
@@ -161,6 +178,7 @@ impl Op {
                                 leader.load(Ordering::Acquire),
                                 members.clone(),
                                 toleader.clone(),
+                                broadcast.clone(),
                             );
                         }
                         WorkerCtrl::PingMember(name) => {
@@ -265,6 +283,50 @@ impl Op {
 
                                 let mut send = String::new();
                                 write!(&mut send, "{}{}\n", CMD_SEND, encoded).unwrap();
+                                if let Ok(_) = stream.write_all(send.as_bytes()) {
+                                    let mut reader = BufReader::new(&stream);
+                                    let mut resp = String::new();
+                                    reader.read_line(&mut resp).unwrap();
+                                    tx.send(resp[..resp.len() - 1].as_bytes().to_vec()).unwrap();
+                                }
+
+                                break 'onetime;
+                            }
+                        }
+                        WorkerCtrl::Broadcast { name, msg, tx } => {
+                            let start = Instant::now();
+
+                            defer! {
+                                info!("[T{i}]: broadcast took {:?}", start.elapsed());
+                            }
+
+                            'onetime: loop {
+                                let encoded = Base64::encode_string(&msg);
+
+                                let hp: Vec<&str> = name.split(":").collect();
+                                let hh: Vec<&str> = hp[0].split(".").collect();
+                                let ip = SocketAddr::new(
+                                    IpAddr::V4(Ipv4Addr::new(
+                                        hh[0].parse::<u8>().unwrap(),
+                                        hh[1].parse::<u8>().unwrap(),
+                                        hh[2].parse::<u8>().unwrap(),
+                                        hh[3].parse::<u8>().unwrap(),
+                                    )),
+                                    hp[1].parse::<u16>().unwrap(),
+                                );
+
+                                let mut stream = match TcpStream::connect_timeout(&ip, Duration::from_secs(5)) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        let mut err = String::new();
+                                        write!(&mut err, "-connect_timeout failed: {e}").unwrap();
+                                        tx.send(err.as_bytes().to_vec()).unwrap();
+                                        break 'onetime;
+                                    }
+                                };
+
+                                let mut send = String::new();
+                                write!(&mut send, "{}{}\n", CMD_BCST, encoded).unwrap();
                                 if let Ok(_) = stream.write_all(send.as_bytes()) {
                                     let mut reader = BufReader::new(&stream);
                                     let mut resp = String::new();
@@ -473,6 +535,67 @@ impl Op {
             b'-' => return Err(anyhow!(String::from_utf8(r[1..].to_vec()).unwrap())),
             _ => return Err(anyhow!("unknown")),
         }
+    }
+
+    /// TODO: Broadcast to all.
+    pub fn broadcast(&mut self, msg: Vec<u8>, tx: mpsc::Sender<Broadcast>) -> Result<()> {
+        let active = self.active.clone();
+        if active.load(Ordering::Acquire) == 0 {
+            return Err(anyhow!("still initializing"));
+        }
+
+        let mut rxs: HashMap<String, Receiver<Vec<u8>>> = HashMap::new();
+        let mut m: Vec<String> = vec![];
+
+        {
+            if let Ok(v) = self.members.clone().lock() {
+                for (k, _) in &*v {
+                    m.push(k.clone());
+                }
+            }
+        }
+
+        for name in m {
+            let (tx, rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = unbounded();
+            rxs.insert(name.clone(), rx.clone());
+            self.tx_worker[0]
+                .send(WorkerCtrl::Broadcast {
+                    name,
+                    msg: msg.to_vec(),
+                    tx,
+                })
+                .unwrap();
+        }
+
+        for (k, v) in rxs {
+            let r = &v.recv().unwrap();
+            match r[0] {
+                b'+' => {
+                    let _ = tx.send(Broadcast::ReplyStream {
+                        id: k,
+                        msg: r[1..].to_vec(),
+                        error: false,
+                    });
+                }
+                b'-' => {
+                    let _ = tx.send(Broadcast::ReplyStream {
+                        id: k,
+                        msg: r[1..].to_vec(),
+                        error: true,
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        // Signal end of reply stream.
+        let _ = tx.send(Broadcast::ReplyStream {
+            id: "".to_string(),
+            msg: vec![],
+            error: false,
+        });
+
+        Ok(())
     }
 
     pub fn close(&mut self) {

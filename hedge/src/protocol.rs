@@ -8,8 +8,9 @@ use std::net::TcpStream;
 use std::sync::{Arc, Mutex, mpsc};
 
 pub const CMD_CLDR: &str = "#"; // for leader confirmation, reply="+<1|0>"
-pub const CMD_PING: &str = "*"; // heartbeat to indicate availability, fmt="+[id]"
+pub const CMD_PING: &str = "^"; // heartbeat to indicate availability, fmt="^[id]"
 pub const CMD_SEND: &str = "$"; // member to leader, fmt="$<base64(payload)>"
+pub const CMD_BCST: &str = "*"; // broadcast to all, fmt="*<base64(payload)>"
 
 // Replies starts with either '+' or '-'; '+' = success, '-' = error.
 pub fn handle_protocol(
@@ -17,7 +18,8 @@ pub fn handle_protocol(
     mut stream: TcpStream,
     leader: usize,
     members: Arc<Mutex<HashMap<String, usize>>>,
-    toleader: Vec<mpsc::Sender<Comms>>,
+    tx_toleader: Vec<mpsc::Sender<Comms>>,
+    tx_broadcast: Vec<mpsc::Sender<Comms>>,
 ) {
     let mut reader = BufReader::new(&stream);
     let mut data = String::new();
@@ -75,7 +77,7 @@ pub fn handle_protocol(
 
     // TODO: docs
     if data.starts_with(CMD_SEND) {
-        if toleader.len() == 0 {
+        if tx_toleader.len() == 0 {
             let _ = stream.write_all("-send disabled\n".as_bytes());
             return;
         }
@@ -96,7 +98,40 @@ pub fn handle_protocol(
         };
 
         let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
-        if let Err(e) = toleader[0].send(Comms::ToLeader { msg: decoded, tx }) {
+        if let Err(e) = tx_toleader[0].send(Comms::ToLeader { msg: decoded, tx }) {
+            let mut err = String::new();
+            write!(&mut err, "-{e}\n").unwrap();
+            let _ = stream.write_all(err.as_bytes());
+            return;
+        }
+
+        let mut rep = rx.recv().unwrap();
+        let mut ack = vec![b'+'];
+        ack.append(&mut rep);
+        ack.push(b'\n');
+        let _ = stream.write_all(&ack);
+        return;
+    }
+
+    // TODO: docs
+    if data.starts_with(CMD_BCST) {
+        if tx_broadcast.len() == 0 {
+            let _ = stream.write_all("-send disabled\n".as_bytes());
+            return;
+        }
+
+        let decoded = match Base64::decode_vec(&data[1..&data.len() - 1]) {
+            Ok(v) => v,
+            Err(e) => {
+                let mut err = String::new();
+                write!(&mut err, "-{e}\n").unwrap();
+                let _ = stream.write_all(err.as_bytes());
+                return;
+            }
+        };
+
+        let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
+        if let Err(e) = tx_broadcast[0].send(Comms::ToLeader { msg: decoded, tx }) {
             let mut err = String::new();
             write!(&mut err, "-{e}\n").unwrap();
             let _ = stream.write_all(err.as_bytes());
