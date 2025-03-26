@@ -28,6 +28,9 @@ pub enum Comms {
 
 #[derive(Debug)]
 pub enum Broadcast {
+    /// `ReplyStream` is the message used to stream broadcast replies.
+    /// `id` is the node where the reply comes from, `msg` is the payload,
+    /// and `error` marks whether `msg` is an error message or not.
     ReplyStream { id: String, msg: Vec<u8>, error: bool },
 }
 
@@ -520,7 +523,8 @@ impl Op {
         return ret;
     }
 
-    /// TODO: Send to leader.
+    /// Sends a message to the current leader. The return value
+    /// serves as the reply payload from the leader.
     pub fn send(&mut self, msg: Vec<u8>) -> Result<Vec<u8>, Error> {
         let active = self.active.clone();
         if active.load(Ordering::Acquire) == 0 {
@@ -537,7 +541,9 @@ impl Op {
         }
     }
 
-    /// TODO: Broadcast to all.
+    /// Broadcasts a message to all nodes. Replies from nodes will be streamed through
+    /// the tx channel. You can read the replies through the Receiver pair. An empty
+    /// payload or id marks the end of the stream.
     pub fn broadcast(&mut self, msg: Vec<u8>, tx: mpsc::Sender<Broadcast>) -> Result<()> {
         defer! {
             // Signal end of reply stream.
