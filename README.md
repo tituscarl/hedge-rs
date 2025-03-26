@@ -33,26 +33,50 @@ $ git clone https://github.com/flowerinthenight/hedge-rs/
 $ cd hedge-rs/
 $ cargo build
 
-# Run the first instance:
-# (Use your actual values)
-$ RUST_LOG=info,spindle_rs=off ./target/debug/example \
+# Run the first instance. The first host:port is for hedge-rs'
+# internal server; the last host:port is for main's test TCP.
+# (Use your actual Spanner values.)
+$ RUST_LOG=info ./target/debug/example \
   projects/p/instances/i/databases/db \
   locktable \
-  0.0.0.0:8080
+  0.0.0.0:8080 \
+  0.0.0.0:9090
 
-# Run this 2nd instance on a different terminal:
-# (Use your actual values)
-$ RUST_LOG=info,spindle_rs=off ./target/debug/example \
+# Run this 2nd instance on a different terminal. The first
+# host:port is for hedge-rs' internal server; the last
+# host:port is for main's test TCP.
+# (Use your actual Spanner values.)
+$ RUST_LOG=info ./target/debug/example \
   projects/p/instances/i/databases/db \
   locktable \
-  0.0.0.0:8081
+  0.0.0.0:8081 \
+  0.0.0.0:9091
 
-# Run this 3nd instance on a different terminal:
-# (Use your actual values)
-$ RUST_LOG=info,spindle_rs=off ./target/debug/example \
+# Run this 3rd instance on a different terminal. The first
+# host:port is for hedge-rs' internal server; the last
+# host:port is for main's test TCP.
+# (Use your actual Spanner values.)
+$ RUST_LOG=info ./target/debug/example \
   projects/p/instances/i/databases/db \
   locktable \
-  0.0.0.0:8082
+  0.0.0.0:8082 \
+  0.0.0.0:9092
 ```
 
-You can play around by adding more processes, killing the leader process, killing a non-leader process, restarting an existing process, etc. You can also remove the `spindle_rs=off` environment to see the logs from `spindle-rs`.
+You can play around by adding more processes, killing the leader process, killing a non-leader process, restarting an existing process, etc.
+
+You can also add the `spindle_rs=off` value to the RUST_LOG environment variable to see the logs from `spindle-rs`.
+
+```bash
+$ RUST_LOG=info,spindle_rs=info ./target/debug/example...
+```
+
+To test the `send()` and `broadcast()` APIs, you can do something like:
+
+```bash
+# Messages starting with 'send' will use the send() API.
+$ echo 'send this message to leader' | nc localhost 9091
+
+# Messages starting with 'broadcast' will use the broadcast() API.
+$ echo 'broadcast hello all nodes!' | nc localhost 9092
+```
