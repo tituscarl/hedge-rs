@@ -594,7 +594,7 @@ checksum = "bf151400ff0baff5465007dd2f3e717f3fe502074ca563069ce3a6629d07b289"
 
 [[package]]
 name = "hedge_rs"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "base64ct",
@@ -1696,9 +1696,9 @@ dependencies = [
 
 [[package]]
 name = "spindle_rs"
-version = "0.2.6"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ad28b9bfb0efc69a6d153e4939b98e278ffc8b4b691b34405372ff5f73adc00"
+checksum = "e2182725216220438bc53757db20f83c20b6357561337d6b25e40a4e203cdd92"
 dependencies = [
  "anyhow",
  "exp_backoff",
