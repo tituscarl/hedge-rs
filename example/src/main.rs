@@ -92,9 +92,9 @@ fn main() -> Result<()> {
                 }
 
                 if error {
-                    error!("{:?}", String::from_utf8(msg).unwrap());
+                    error!("{:?}", String::from_utf8(msg)?);
                 } else {
-                    info!("{:?}", String::from_utf8(msg).unwrap());
+                    info!("{:?}", String::from_utf8(msg)?);
                 }
             }
         }

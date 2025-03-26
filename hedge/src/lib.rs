@@ -169,7 +169,7 @@ impl Op {
                             let start = Instant::now();
 
                             defer! {
-                                info!("[T{i}]: tcp took {:?}", start.elapsed());
+                                debug!("[T{i}]: tcp took {:?}", start.elapsed());
                             }
 
                             handle_protocol(
@@ -186,7 +186,7 @@ impl Op {
                             let start = Instant::now();
 
                             defer! {
-                                info!("[T{i}]: ping took {:?}", start.elapsed());
+                                debug!("[T{i}]: ping took {:?}", start.elapsed());
                             }
 
                             'onetime: loop {
@@ -239,7 +239,7 @@ impl Op {
                             let start = Instant::now();
 
                             defer! {
-                                info!("[T{i}]: toleader took {:?}", start.elapsed());
+                                debug!("[T{i}]: toleader took {:?}", start.elapsed());
                             }
 
                             'onetime: loop {
@@ -297,7 +297,7 @@ impl Op {
                             let start = Instant::now();
 
                             defer! {
-                                info!("[T{i}]: broadcast took {:?}", start.elapsed());
+                                debug!("[T{i}]: broadcast took {:?}", start.elapsed());
                             }
 
                             'onetime: loop {
@@ -384,7 +384,7 @@ impl Op {
                         pause -= latency;
                     }
 
-                    info!("members took {:?}", start.elapsed());
+                    debug!("members took {:?}", start.elapsed());
                     thread::sleep(Duration::from_millis(pause));
                 }
 
@@ -453,7 +453,7 @@ impl Op {
                         let mut resp = String::new();
                         reader.read_line(&mut resp).unwrap();
 
-                        info!("response: {resp:?}");
+                        debug!("response: {resp:?}");
 
                         if resp.chars().nth(0).unwrap() != '+' {
                             continue;
@@ -539,6 +539,15 @@ impl Op {
 
     /// TODO: Broadcast to all.
     pub fn broadcast(&mut self, msg: Vec<u8>, tx: mpsc::Sender<Broadcast>) -> Result<()> {
+        defer! {
+            // Signal end of reply stream.
+            let _ = tx.send(Broadcast::ReplyStream {
+                id: "".to_string(),
+                msg: vec![],
+                error: false,
+            });
+        }
+
         let active = self.active.clone();
         if active.load(Ordering::Acquire) == 0 {
             return Err(anyhow!("still initializing"));
@@ -587,13 +596,6 @@ impl Op {
                 _ => {}
             }
         }
-
-        // Signal end of reply stream.
-        let _ = tx.send(Broadcast::ReplyStream {
-            id: "".to_string(),
-            msg: vec![],
-            error: false,
-        });
 
         Ok(())
     }

@@ -25,7 +25,7 @@ pub fn handle_protocol(
     let mut data = String::new();
     reader.read_line(&mut data).unwrap();
 
-    info!("[T{id}]: request: {data:?}");
+    debug!("[T{id}]: request: {data:?}");
 
     // Confirm if we are leader. Reply with +1 if so, otherwise, +0.
     if data.starts_with(CMD_CLDR) {
@@ -131,7 +131,7 @@ pub fn handle_protocol(
         };
 
         let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
-        if let Err(e) = tx_broadcast[0].send(Comms::ToLeader { msg: decoded, tx }) {
+        if let Err(e) = tx_broadcast[0].send(Comms::Broadcast { msg: decoded, tx }) {
             let mut err = String::new();
             write!(&mut err, "-{e}\n").unwrap();
             let _ = stream.write_all(err.as_bytes());
