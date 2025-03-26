@@ -19,8 +19,8 @@ fn main() -> Result<()> {
     let (tx, rx) = channel();
     ctrlc::set_handler(move || tx.send(()).unwrap())?;
 
-    // We will use this channel for the 'toleader' feature; ability to send
-    // messages to the current leader. Use Sender as input to 'toleader',
+    // We will use this channel for the 'send' feature; ability to send
+    // messages to the current leader. Use Sender as input to 'tx_toleader',
     // then we read replies through the Receiver channel.
     let (tx_leader, rx_leader): (Sender<Comms>, Receiver<Comms>) = channel();
 
@@ -30,7 +30,7 @@ fn main() -> Result<()> {
         .name("hedge-rs".to_string())
         .id(args[3].to_string())
         .lease_ms(3_000)
-        .toleader(Some(tx_leader))
+        .tx_toleader(Some(tx_leader))
         .build();
 
     op.run()?;
@@ -38,8 +38,8 @@ fn main() -> Result<()> {
     thread::spawn(move || {
         loop {
             match rx_leader.recv().unwrap() {
-                // This is our 'toleader' handler. When a node is the leader, this
-                // handles all messages coming from other nodes using the send() API.
+                // This is our 'send' handler. When a node is the leader, this handles
+                // all messages coming from other nodes using the send() API.
                 Comms::ToLeader { msg, tx } => {
                     info!("[ToLeader] received: {}", String::from_utf8(msg).unwrap());
 
@@ -48,6 +48,7 @@ fn main() -> Result<()> {
                     write!(&mut reply, "hello from {}", args[3].to_string()).unwrap();
                     tx.send(reply.as_bytes().to_vec()).unwrap();
                 }
+                Comms::Broadcast { msg, tx } => {}
             }
         }
     });

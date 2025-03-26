@@ -23,6 +23,7 @@ extern crate scopeguard;
 #[derive(Debug)]
 pub enum Comms {
     ToLeader { msg: Vec<u8>, tx: mpsc::Sender<Vec<u8>> },
+    Broadcast { msg: Vec<u8>, tx: mpsc::Sender<Vec<u8>> },
 }
 
 #[derive(Debug)]
@@ -44,6 +45,7 @@ pub struct Op {
     members: Arc<Mutex<HashMap<String, usize>>>,
     tx_worker: Vec<Sender<WorkerCtrl>>,
     tx_toleader: Option<mpsc::Sender<Comms>>,
+    tx_broadcast: Option<mpsc::Sender<Comms>>,
     active: Arc<AtomicUsize>,
 }
 
@@ -491,6 +493,7 @@ pub struct OpBuilder {
     lease_ms: u64,
     sync_ms: u64,
     tx_toleader: Option<mpsc::Sender<Comms>>,
+    tx_broadcast: Option<mpsc::Sender<Comms>>,
 }
 
 impl OpBuilder {
@@ -535,8 +538,14 @@ impl OpBuilder {
     }
 
     /// TODO:
-    pub fn toleader(mut self, tx: Option<mpsc::Sender<Comms>>) -> OpBuilder {
+    pub fn tx_toleader(mut self, tx: Option<mpsc::Sender<Comms>>) -> OpBuilder {
         self.tx_toleader = tx;
+        self
+    }
+
+    /// TODO:
+    pub fn tx_broadcast(mut self, tx: Option<mpsc::Sender<Comms>>) -> OpBuilder {
+        self.tx_broadcast = tx;
         self
     }
 
@@ -558,6 +567,7 @@ impl OpBuilder {
             members: Arc::new(Mutex::new(HashMap::new())),
             tx_worker: vec![],
             tx_toleader: self.tx_toleader,
+            tx_broadcast: self.tx_broadcast,
             active: Arc::new(AtomicUsize::new(0)),
         }
     }
