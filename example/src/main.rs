@@ -19,10 +19,10 @@ fn main() -> Result<()> {
     let (tx, rx) = channel();
     ctrlc::set_handler(move || tx.send(()).unwrap())?;
 
-    // We will use this channel for the 'toleader' feature; ability to send messages to the
-    // current leader. Use Sender as input to 'toleader', then we read replies through the
-    // Receiver channel.
-    let (tx_leader, rx_leader): (Sender<LeaderChannel>, Receiver<LeaderChannel>) = channel();
+    // We will use this channel for the 'toleader' feature; ability to send
+    // messages to the current leader. Use Sender as input to 'toleader',
+    // then we read replies through the Receiver channel.
+    let (tx_leader, rx_leader): (Sender<Comms>, Receiver<Comms>) = channel();
 
     let mut op = OpBuilder::new()
         .db(args[1].clone())
@@ -35,12 +35,12 @@ fn main() -> Result<()> {
 
     op.run()?;
 
-    // This is our 'toleader' handler. When a node is the leader, this handles all
-    // messages coming from other nodes using the send() API.
     thread::spawn(move || {
         loop {
             match rx_leader.recv().unwrap() {
-                LeaderChannel::ToLeader { msg, tx } => {
+                // This is our 'toleader' handler. When a node is the leader, this
+                // handles all messages coming from other nodes using the send() API.
+                Comms::ToLeader { msg, tx } => {
                     info!("[ToLeader] received: {}", String::from_utf8(msg).unwrap());
 
                     // Send our reply back using 'tx'. args[3] here is our id.

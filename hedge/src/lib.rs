@@ -21,7 +21,7 @@ use uuid::Uuid;
 extern crate scopeguard;
 
 #[derive(Debug)]
-pub enum LeaderChannel {
+pub enum Comms {
     ToLeader { msg: Vec<u8>, tx: mpsc::Sender<Vec<u8>> },
 }
 
@@ -43,7 +43,7 @@ pub struct Op {
     sync_ms: u64,
     members: Arc<Mutex<HashMap<String, usize>>>,
     tx_worker: Vec<Sender<WorkerCtrl>>,
-    tx_toleader: Option<mpsc::Sender<LeaderChannel>>,
+    tx_toleader: Option<mpsc::Sender<Comms>>,
     active: Arc<AtomicUsize>,
 }
 
@@ -342,12 +342,9 @@ impl Op {
                         tx_ensure.send(WorkerCtrl::PingMember(name)).unwrap();
                     }
 
-                    // TODO: use debug!().
                     {
                         if let Ok(v) = members.clone().lock() {
-                            for (k, _) in &*v {
-                                info!("current members: {}", k);
-                            }
+                            info!("{} member(s) tracked", v.len());
                         }
                     }
                 } else {
@@ -410,12 +407,9 @@ impl Op {
                             }
                         }
 
-                        // TODO: use debug!().
                         {
                             if let Ok(v) = members.clone().lock() {
-                                for (k, _) in &*v {
-                                    info!("current members: {}", k);
-                                }
+                                info!("{} member(s) tracked", v.len());
                             }
                         }
                     }
@@ -496,7 +490,7 @@ pub struct OpBuilder {
     id: String,
     lease_ms: u64,
     sync_ms: u64,
-    tx_toleader: Option<mpsc::Sender<LeaderChannel>>,
+    tx_toleader: Option<mpsc::Sender<Comms>>,
 }
 
 impl OpBuilder {
@@ -541,7 +535,7 @@ impl OpBuilder {
     }
 
     /// TODO:
-    pub fn toleader(mut self, tx: Option<mpsc::Sender<LeaderChannel>>) -> OpBuilder {
+    pub fn toleader(mut self, tx: Option<mpsc::Sender<Comms>>) -> OpBuilder {
         self.tx_toleader = tx;
         self
     }

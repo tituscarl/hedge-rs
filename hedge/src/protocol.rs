@@ -1,4 +1,4 @@
-use crate::LeaderChannel;
+use crate::Comms;
 use base64ct::{Base64, Encoding};
 use log::*;
 use std::collections::HashMap;
@@ -17,7 +17,7 @@ pub fn handle_protocol(
     mut stream: TcpStream,
     leader: usize,
     members: Arc<Mutex<HashMap<String, usize>>>,
-    toleader: Vec<mpsc::Sender<LeaderChannel>>,
+    toleader: Vec<mpsc::Sender<Comms>>,
 ) {
     let mut reader = BufReader::new(&stream);
     let mut data = String::new();
@@ -96,7 +96,7 @@ pub fn handle_protocol(
         };
 
         let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
-        if let Err(e) = toleader[0].send(LeaderChannel::ToLeader { msg: decoded, tx }) {
+        if let Err(e) = toleader[0].send(Comms::ToLeader { msg: decoded, tx }) {
             let mut err = String::new();
             write!(&mut err, "-{e}\n").unwrap();
             let _ = stream.write_all(err.as_bytes());
