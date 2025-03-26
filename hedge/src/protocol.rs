@@ -75,13 +75,13 @@ pub fn handle_protocol(
 
     // TODO: docs
     if data.starts_with(CMD_SEND) {
-        if leader == 0 {
-            let _ = stream.write_all("-not leader\n".as_bytes());
+        if toleader.len() == 0 {
+            let _ = stream.write_all("-send disabled\n".as_bytes());
             return;
         }
 
-        if toleader.len() == 0 {
-            let _ = stream.write_all("-send disabled\n".as_bytes());
+        if leader == 0 {
+            let _ = stream.write_all("-not leader\n".as_bytes());
             return;
         }
 

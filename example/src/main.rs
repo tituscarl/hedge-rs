@@ -37,18 +37,24 @@ fn main() -> Result<()> {
 
     thread::spawn(move || {
         loop {
-            match rx_leader.recv().unwrap() {
-                // This is our 'send' handler. When a node is the leader, this handles
-                // all messages coming from other nodes using the send() API.
-                Comms::ToLeader { msg, tx } => {
-                    info!("[ToLeader] received: {}", String::from_utf8(msg).unwrap());
+            match rx_leader.recv() {
+                Ok(v) => match v {
+                    // This is our 'send' handler. When a node is the leader, this handles
+                    // all messages coming from other nodes using the send() API.
+                    Comms::ToLeader { msg, tx } => {
+                        info!("[ToLeader] received: {}", String::from_utf8(msg).unwrap());
 
-                    // Send our reply back using 'tx'. args[3] here is our id.
-                    let mut reply = String::new();
-                    write!(&mut reply, "hello from {}", args[3].to_string()).unwrap();
-                    tx.send(reply.as_bytes().to_vec()).unwrap();
+                        // Send our reply back using 'tx'. args[3] here is our id.
+                        let mut reply = String::new();
+                        write!(&mut reply, "hello from {}", args[3].to_string()).unwrap();
+                        tx.send(reply.as_bytes().to_vec()).unwrap();
+                    }
+                    Comms::Broadcast { msg, tx } => {}
+                },
+                Err(e) => {
+                    error!("{e}");
+                    continue;
                 }
-                Comms::Broadcast { msg, tx } => {}
             }
         }
     });
