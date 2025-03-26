@@ -35,12 +35,15 @@ fn main() -> Result<()> {
 
     op.run()?;
 
-    // This is our 'toleader' handler. This will only run when the node is the leader.
+    // This is our 'toleader' handler. When a node is the leader, this handles all
+    // messages coming from other nodes using the send() API.
     thread::spawn(move || {
         loop {
             match rx_leader.recv().unwrap() {
                 LeaderChannel::ToLeader { msg, tx } => {
                     info!("[ToLeader] received: {}", String::from_utf8(msg).unwrap());
+
+                    // Send our reply back using 'tx'. args[3] here is our id.
                     let mut reply = String::new();
                     write!(&mut reply, "hello from {}", args[3].to_string()).unwrap();
                     tx.send(reply.as_bytes().to_vec()).unwrap();
