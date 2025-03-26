@@ -14,7 +14,7 @@ A cluster membership Rust library. It is built on [spindle-rs](https://github.co
 
 ## Running the sample
 
-First, create the Spanner table for `spindle-rs`:
+First, create the Spanner table for [spindle-rs](https://github.com/flowerinthenight/spindle-rs):
 
 ```sql
 CREATE TABLE locktable (
