@@ -55,4 +55,4 @@ $ RUST_LOG=info,spindle_rs=off ./target/debug/example \
   0.0.0.0:8082
 ```
 
-You can play around by adding more processes, killing the leader process, killing a non-leader process, restarting an existing process, etc. You can also remove the `spindle_rs=off` environment to see logs from `spindle-rs`.
+You can play around by adding more processes, killing the leader process, killing a non-leader process, restarting an existing process, etc. You can also remove the `spindle_rs=off` environment to see the logs from `spindle-rs`.
