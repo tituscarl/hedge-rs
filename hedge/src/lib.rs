@@ -341,6 +341,15 @@ impl Op {
                     for name in mm {
                         tx_ensure.send(WorkerCtrl::PingMember(name)).unwrap();
                     }
+
+                    // TODO: use debug!().
+                    {
+                        if let Ok(v) = members.clone().lock() {
+                            for (k, _) in &*v {
+                                info!("current members: {}", k);
+                            }
+                        }
+                    }
                 } else {
                     // We're not leader. Send heartbeats to leader.
                     let mut leader = String::new();

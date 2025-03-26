@@ -40,7 +40,7 @@ fn main() -> Result<()> {
         loop {
             match rx_leader.recv().unwrap() {
                 LeaderChannel::ToLeader { msg, tx } => {
-                    info!("[ToLeader] received: {:?}", String::from_utf8(msg));
+                    info!("[ToLeader] received: {}", String::from_utf8(msg).unwrap());
                     let mut reply = String::new();
                     write!(&mut reply, "hello from {}", args[3].to_string()).unwrap();
                     tx.send(reply.as_bytes().to_vec()).unwrap();
@@ -51,6 +51,7 @@ fn main() -> Result<()> {
 
     thread::sleep(Duration::from_millis(5000));
 
+    info!("sending 'hello' to leader...");
     match op.send("hello".as_bytes().to_vec()) {
         Ok(v) => info!("reply from leader: {}", String::from_utf8(v).unwrap()),
         Err(e) => error!("send failed: {e}"),
