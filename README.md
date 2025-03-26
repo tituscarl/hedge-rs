@@ -25,3 +25,29 @@ CREATE TABLE locktable (
 ) PRIMARY KEY (name)
 ```
 
+Then you can run the sample like so:
+
+```sh
+# Clone and build:
+$ git clone https://github.com/flowerinthenight/hedge-rs/
+$ cd hedge-rs/
+$ cargo build
+
+# Run the first instance:
+$ RUST_LOG=info,spindle_rs=off ./target/debug/example \
+  projects/p/instances/i/databases/db \
+  locktable \
+  0.0.0.0:8080
+
+# Run this 2nd instance on a different terminal:
+$ RUST_LOG=info,spindle_rs=off ./target/debug/example \
+  projects/p/instances/i/databases/db \
+  locktable \
+  0.0.0.0:8081
+
+# Run this 3nd instance on a different terminal:
+$ RUST_LOG=info,spindle_rs=off ./target/debug/example \
+  projects/p/instances/i/databases/db \
+  locktable \
+  0.0.0.0:8082
+```
