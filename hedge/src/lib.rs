@@ -1,7 +1,7 @@
 mod protocol;
 
-use anyhow::{Result, anyhow};
-use base64::prelude::*;
+use anyhow::{Error, Result, anyhow};
+use base64ct::{Base64, Encoding};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use log::*;
 use protocol::*;
@@ -237,7 +237,7 @@ impl Op {
                                     break 'onetime;
                                 }
 
-                                let encoded = BASE64_STANDARD.encode(msg);
+                                let encoded = Base64::encode_string(&msg);
 
                                 let hp: Vec<&str> = leader.split(":").collect();
                                 let hh: Vec<&str> = hp[0].split(".").collect();
@@ -267,9 +267,7 @@ impl Op {
                                     let mut reader = BufReader::new(&stream);
                                     let mut resp = String::new();
                                     reader.read_line(&mut resp).unwrap();
-
-                                    info!(">>>>> response: {resp:?}");
-                                    tx.send(resp.as_bytes().to_vec()).unwrap();
+                                    tx.send(resp[..resp.len() - 1].as_bytes().to_vec()).unwrap();
                                 }
 
                                 break 'onetime;
@@ -456,7 +454,7 @@ impl Op {
     }
 
     /// TODO: Send to leader.
-    pub fn send(&mut self, msg: Vec<u8>) -> Result<Vec<u8>> {
+    pub fn send(&mut self, msg: Vec<u8>) -> Result<Vec<u8>, Error> {
         let active = self.active.clone();
         if active.load(Ordering::Acquire) == 0 {
             return Err(anyhow!("still initializing"));
@@ -465,8 +463,11 @@ impl Op {
         let (tx, rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = unbounded();
         self.tx_worker[0].send(WorkerCtrl::ToLeader { msg, tx }).unwrap();
         let r = rx.recv().unwrap();
-        info!(">>>>> send-reply: {:?}", String::from_utf8(r).unwrap());
-        Ok(Vec::new())
+        match r[0] {
+            b'+' => return Ok(r[1..].to_vec()),
+            b'-' => return Err(anyhow!(String::from_utf8(r[1..].to_vec()).unwrap())),
+            _ => return Err(anyhow!("unknown")),
+        }
     }
 
     pub fn close(&mut self) {

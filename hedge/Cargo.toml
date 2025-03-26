@@ -20,4 +20,4 @@ anyhow = "1.0.97"
 crossbeam-channel = "0.5.14"
 spindle_rs = "0.2.6"
 num_cpus = "1.16.0"
-base64 = "0.22.1"
+base64ct = { version = "1.7.3", features = ["alloc"] }

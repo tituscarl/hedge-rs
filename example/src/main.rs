@@ -2,6 +2,7 @@ use anyhow::Result;
 use ctrlc;
 use hedge_rs::*;
 use log::*;
+use std::fmt::Write as _;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 use std::{env, thread};
@@ -35,15 +36,20 @@ fn main() -> Result<()> {
         loop {
             match rx_leader.recv().unwrap() {
                 LeaderChannel::ToLeader { msg, tx } => {
-                    info!(">>>>> received by leader: {:?}", String::from_utf8(msg));
-                    tx.send("xx".as_bytes().to_vec()).unwrap();
+                    info!("[ToLeader] received: {:?}", String::from_utf8(msg));
+                    let mut reply = String::new();
+                    write!(&mut reply, "hello from {}", args[3].to_string()).unwrap();
+                    tx.send(reply.as_bytes().to_vec()).unwrap();
                 }
             }
         }
     });
 
     thread::sleep(Duration::from_millis(5000));
-    let _ = op.send("hello".as_bytes().to_vec());
+    match op.send("hello".as_bytes().to_vec()) {
+        Ok(v) => info!("reply from leader: {}", String::from_utf8(v).unwrap()),
+        Err(e) => error!("send failed: {e}"),
+    }
 
     // Wait for Ctrl-C.
     info!("Ctrl-C to exit:");

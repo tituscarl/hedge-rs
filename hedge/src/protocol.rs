@@ -1,4 +1,5 @@
 use crate::LeaderChannel;
+use base64ct::{Base64, Encoding};
 use log::*;
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -33,10 +34,7 @@ pub fn handle_protocol(
             write!(&mut ack, "+0\n").unwrap();
         }
 
-        if let Err(e) = stream.write_all(ack.as_bytes()) {
-            error!("[T{id}]: write_all failed: {e}");
-        }
-
+        let _ = stream.write_all(ack.as_bytes());
         return;
     }
 
@@ -47,11 +45,7 @@ pub fn handle_protocol(
         if data.len() == 2 {
             let mut ack = String::new();
             write!(&mut ack, "+1\n").unwrap();
-
-            if let Err(e) = stream.write_all(ack.as_bytes()) {
-                error!("[T{id}]: write_all failed: {e}");
-            }
-
+            let _ = stream.write_all(ack.as_bytes());
             return;
         }
 
@@ -75,41 +69,47 @@ pub fn handle_protocol(
 
         all.pop(); // rm last ','
         write!(&mut ack, "+{}\n", all).unwrap();
-        if let Err(e) = stream.write_all(ack.as_bytes()) {
-            error!("[T{id}]: write_all failed: {e}");
-        }
-
+        let _ = stream.write_all(ack.as_bytes());
         return;
     }
 
     // TODO: docs
     if data.starts_with(CMD_SEND) {
+        if leader == 0 {
+            let _ = stream.write_all("-not leader\n".as_bytes());
+            return;
+        }
+
+        if toleader.len() == 0 {
+            let _ = stream.write_all("-send disabled\n".as_bytes());
+            return;
+        }
+
+        let decoded = match Base64::decode_vec(&data[1..&data.len() - 1]) {
+            Ok(v) => v,
+            Err(e) => {
+                let mut err = String::new();
+                write!(&mut err, "-{e}\n").unwrap();
+                let _ = stream.write_all(err.as_bytes());
+                return;
+            }
+        };
+
         let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel();
-        if let Err(e) = toleader[0].send(LeaderChannel::ToLeader {
-            msg: "zz".as_bytes().to_vec(),
-            tx,
-        }) {
-            error!("send failed: {e}");
-        } else {
-            let rep = rx.recv().unwrap();
-            info!(">>>>> reply from main: {:?}", String::from_utf8(rep));
+        if let Err(e) = toleader[0].send(LeaderChannel::ToLeader { msg: decoded, tx }) {
+            let mut err = String::new();
+            write!(&mut err, "-{e}\n").unwrap();
+            let _ = stream.write_all(err.as_bytes());
+            return;
         }
 
-        let mut ack = String::new();
-        if leader > 0 {
-            write!(&mut ack, "+todo:actual-send\n").unwrap();
-        } else {
-            write!(&mut ack, "+sorry-not-leader\n").unwrap();
-        }
-
-        if let Err(e) = stream.write_all(ack.as_bytes()) {
-            error!("[T{id}]: write_all failed: {e}");
-        }
-
+        let mut rep = rx.recv().unwrap();
+        let mut ack = vec![b'+'];
+        ack.append(&mut rep);
+        ack.push(b'\n');
+        let _ = stream.write_all(&ack);
         return;
     }
 
-    if let Err(e) = stream.write_all(b"-unknown\n") {
-        error!("[T{id}]: write_all failed: {e}");
-    }
+    let _ = stream.write_all(b"-unknown\n");
 }
