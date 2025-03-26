@@ -11,3 +11,17 @@ A cluster membership Rust library. It is built on [spindle-rs](https://github.co
 * List of members - get a list of all member nodes at any time;
 * Send - any member node can send messages to the leader at any time; and
 * Broadcast - any member node can broadcast messages to all nodes at any time.
+
+## Running the sample
+
+First, create the Spanner table for `spindle-rs`:
+
+```sql
+CREATE TABLE locktable (
+    name STRING(MAX) NOT NULL,
+    heartbeat TIMESTAMP OPTIONS (allow_commit_timestamp=true),
+    token TIMESTAMP OPTIONS (allow_commit_timestamp=true),
+    writer STRING(MAX),
+) PRIMARY KEY (name)
+```
+
