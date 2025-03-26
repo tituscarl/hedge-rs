@@ -27,7 +27,7 @@ CREATE TABLE locktable (
 
 Then you can run the sample like so:
 
-```sh
+```bash
 # Clone and build:
 $ git clone https://github.com/flowerinthenight/hedge-rs/
 $ cd hedge-rs/
