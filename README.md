@@ -1,4 +1,6 @@
 [![main](https://github.com/flowerinthenight/hedge-rs/actions/workflows/main.yml/badge.svg)](https://github.com/flowerinthenight/hedge-rs/actions/workflows/main.yml)
+[![crates.io](https://img.shields.io/crates/v/hedge_rs)](https://crates.io/crates/hedge_rs)
+[![docs-rs](https://img.shields.io/docsrs/hedge_rs)](https://docs.rs/hedge_rs/latest/hedge_rs/)
 
 ## hedge-rs
 
