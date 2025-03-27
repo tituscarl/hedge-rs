@@ -81,6 +81,27 @@ $ echo 'send this message to leader' | nc localhost 9091
 $ echo 'broadcast hello all nodes!' | nc localhost 9092
 ```
 
-## Run sample on a GCP MIG
+## Runing the sample on a GCP MIG
 
-A sample cloud-init [startup script](./startup-gcp-mig.sh) is provided for spinning up a [Managed Instance Group](https://cloud.google.com/compute/docs/instance-groups#managed_instance_groups). You need to update the `ExecStart` section first with your actual Spanner connection URL and table name.
+A sample cloud-init [startup script](./startup-gcp-mig.sh) is provided for spinning up a [Managed Instance Group](https://cloud.google.com/compute/docs/instance-groups#managed_instance_groups) with the sample code running as a systemd service. You need to update the `ExecStart` section first with your actual Spanner connection URL and table name.
+
+```bash
+# Create a launch template. The provided --service-account
+# will provide access to Spanner.
+$ gcloud compute instance-templates create hedge-tmpl \
+  --machine-type e2-micro \
+  --service-account=name@project.iam.gserviceaccount.com \
+  --scopes=cloud-platform \
+  --metadata=startup-script=''"$(cat startup-gcp-mig.sh)"''
+
+# Create the MIG. Update {target-region} with actual value.
+$ gcloud compute instance-groups managed create hedge-mig \
+  --template hedge-tmpl --size 3 --region {target-region}
+
+# Let's use 'https://github.com/flowerinthenight/g-ssh-cmd'
+# to tail the logs from all three VMs.
+$ brew install flowerinthenight/tap/g-ssh-cmd
+
+# Assuming your 'gcloud' is configured properly:
+$ g-ssh-cmd mig hedge-mig 'journalctl -f'
+```
