@@ -65,12 +65,6 @@ $ RUST_LOG=info ./target/debug/example \
 
 You can play around by adding more processes, killing the leader process, killing a non-leader process, restarting an existing process, etc.
 
-You can add the `spindle_rs=info` value to the `RUST_LOG` environment variable to see the logs from [spindle-rs](https://github.com/flowerinthenight/spindle-rs), like so:
-
-```bash
-$ RUST_LOG=info,spindle_rs=info ./target/debug/example...
-```
-
 To test the `send()` and `broadcast()` APIs, you can do something like:
 
 ```bash
