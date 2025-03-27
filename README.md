@@ -104,4 +104,8 @@ $ brew install flowerinthenight/tap/g-ssh-cmd
 
 # Assuming your 'gcloud' is configured properly:
 $ g-ssh-cmd mig hedge-mig 'journalctl -f'
+
+# On a different terminal, SSH to one of the VMs and try:
+$ echo 'broadcast hello all nodes!' | \
+  nc $(cat /etc/hedge/internal-ip) 9090
 ```
