@@ -1,6 +1,6 @@
 [package]
 name = "hedge_rs"
-version = "0.1.12"
+version = "0.1.13"
 edition = "2024"
 authors = ["flowerinthenight <root@flowerinthenight.com>"]
 description = "A cluster membership library built on spindle-rs."
