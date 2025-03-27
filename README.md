@@ -80,3 +80,7 @@ $ echo 'send this message to leader' | nc localhost 9091
 # Messages starting with 'broadcast' will use the broadcast() API.
 $ echo 'broadcast hello all nodes!' | nc localhost 9092
 ```
+
+## Run sample on a GCP MIG
+
+A sample cloud-init [startup script](./startup-gcp-mig.sh) is provided for spinning up a [Managed Instance Group](https://cloud.google.com/compute/docs/instance-groups#managed_instance_groups). You need to update the `ExecStart` section first with your actual Spanner connection URL and table name.
