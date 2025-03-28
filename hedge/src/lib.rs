@@ -21,9 +21,11 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::{BufReader, prelude::*};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+    mpsc,
+};
 use std::thread;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
