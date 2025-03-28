@@ -2,12 +2,17 @@ use anyhow::Result;
 use ctrlc;
 use hedge_rs::*;
 use log::*;
-use std::fmt::Write as _;
-use std::io::{BufReader, prelude::*};
-use std::net::TcpListener;
-use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, Mutex};
-use std::{env, thread};
+use std::{
+    env,
+    fmt::Write as _,
+    io::{BufReader, prelude::*},
+    net::TcpListener,
+    sync::{
+        Arc, Mutex,
+        mpsc::{Receiver, Sender, channel},
+    },
+    thread,
+};
 
 fn main() -> Result<()> {
     env_logger::init();

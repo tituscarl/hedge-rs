@@ -1,11 +1,13 @@
 use crate::Comms;
 use base64ct::{Base64, Encoding};
 use log::*;
-use std::collections::HashMap;
-use std::fmt::Write as _;
-use std::io::{BufReader, prelude::*};
-use std::net::TcpStream;
-use std::sync::{Arc, Mutex, mpsc};
+use std::{
+    collections::HashMap,
+    fmt::Write as _,
+    io::{BufReader, prelude::*},
+    net::TcpStream,
+    sync::{Arc, Mutex, mpsc},
+};
 
 pub const CMD_CLDR: &str = "#"; // for leader confirmation, reply="+<1|0>"
 pub const CMD_PING: &str = "^"; // heartbeat to indicate availability, fmt="^[id]"

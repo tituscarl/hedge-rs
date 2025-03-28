@@ -17,17 +17,19 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use log::*;
 use protocol::*;
 use spindle_rs::*;
-use std::collections::HashMap;
-use std::fmt::Write as _;
-use std::io::{BufReader, prelude::*};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicUsize, Ordering},
-    mpsc,
+use std::{
+    collections::HashMap,
+    fmt::Write as _,
+    io::{BufReader, prelude::*},
+    net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+        mpsc,
+    },
+    thread,
+    time::{Duration, Instant},
 };
-use std::thread;
-use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 #[macro_use(defer)]
