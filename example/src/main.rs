@@ -52,8 +52,8 @@ fn main() -> Result<()> {
         loop {
             match rx_comms.recv() {
                 Ok(v) => match v {
-                    // This is our 'send' handler. When a node is the leader, this handles
-                    // all messages coming from other nodes using the send() API.
+                    // This is our 'send' handler. When we are leader, we reply to all
+                    // messages coming from other nodes using the send() API here.
                     Comms::ToLeader { msg, tx } => {
                         let msg_s = String::from_utf8(msg).unwrap();
                         info!("[send()] received: {msg_s}");
@@ -64,7 +64,7 @@ fn main() -> Result<()> {
                         tx.send(reply.as_bytes().to_vec()).unwrap();
                     }
                     // This is our 'broadcast' handler. When a node broadcasts a message,
-                    // through the broadcast() API, we reply here..
+                    // through the broadcast() API, we reply here.
                     Comms::Broadcast { msg, tx } => {
                         let msg_s = String::from_utf8(msg).unwrap();
                         info!("[broadcast()] received: {msg_s}");
