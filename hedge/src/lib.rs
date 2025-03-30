@@ -640,7 +640,7 @@ impl Op {
     }
 }
 
-/// Builds an instance of Lock with default values.
+/// Builds an instance of `Op` with default values.
 #[derive(Default)]
 pub struct OpBuilder {
     db: String,
