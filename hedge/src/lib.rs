@@ -35,25 +35,25 @@ use uuid::Uuid;
 #[macro_use(defer)]
 extern crate scopeguard;
 
-/// `Comms` defines the messages used to callback to this crate's caller
+/// Defines the messages used to callback to this crate's caller
 /// for their replies to both the send() and broadcast() APIs.
 #[derive(Debug)]
 pub enum Comms {
-    /// `ToLeader` is the message used to implement the callback handler
+    /// The message used to implement the callback handler
     /// for the send() API.
     ToLeader { msg: Vec<u8>, tx: mpsc::Sender<Vec<u8>> },
-    /// `Broadcast` is the message used to implement the callback handler
+    /// The message used to implement the callback handler
     /// for the broadcast() API.
     Broadcast { msg: Vec<u8>, tx: mpsc::Sender<Vec<u8>> },
 }
 
-/// `Broadcast` defines the message(s) used to facilitate broadcast
+/// Defines the message(s) used to facilitate broadcast
 /// handling between this crate and the calling client.
 #[derive(Debug)]
 pub enum Broadcast {
-    /// `ReplyStream` is the message used to stream broadcast replies.
-    /// `id` is the node where the reply comes from, `msg` is the payload,
-    /// and `error` marks whether `msg` is an error message or not.
+    /// The message used to stream broadcast replies. `id` is the
+    /// node where the reply comes from, `msg` is the payload, and
+    /// `error` marks whether `msg` is an error message or not.
     ReplyStream { id: String, msg: Vec<u8>, error: bool },
 }
 
@@ -72,8 +72,8 @@ enum WorkerCtrl {
     },
 }
 
-/// `Op` is a memberlist tracking implementation for a group/cluster. It
-/// also selects a leader among the group within a specific lease period.
+/// Implements memberlist tracking for a group/cluster. It also
+/// selects a leader among the group within a specific lease period.
 pub struct Op {
     db: String,
     table: String,
@@ -640,7 +640,7 @@ impl Op {
     }
 }
 
-/// `LockBuilder` builds an instance of Lock with default values.
+/// Builds an instance of Lock with default values.
 #[derive(Default)]
 pub struct OpBuilder {
     db: String,
