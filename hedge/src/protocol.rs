@@ -14,6 +14,7 @@ pub const CMD_PING: &str = "^"; // heartbeat to indicate availability, fmt="^[id
 pub const CMD_SEND: &str = "$"; // member to leader, fmt="$<base64(payload)>"
 pub const CMD_BCST: &str = "*"; // broadcast to all, fmt="*<base64(payload)>"
 
+// Our internal TCP server's protocol handler; inspired by Redis' protocol.
 // Replies starts with either '+' or '-'; '+' = success, '-' = error.
 pub fn handle_protocol(
     id: usize,
@@ -77,7 +78,7 @@ pub fn handle_protocol(
         return;
     }
 
-    // TODO: docs
+    // send() handler. Intended only for leader nodes.
     if data.starts_with(CMD_SEND) {
         if tx_toleader.len() == 0 {
             let _ = stream.write_all("-send disabled\n".as_bytes());
@@ -115,7 +116,7 @@ pub fn handle_protocol(
         return;
     }
 
-    // TODO: docs
+    // broadcast() handler. Intended for all nodes, so we reply here.
     if data.starts_with(CMD_BCST) {
         if tx_broadcast.len() == 0 {
             let _ = stream.write_all("-send disabled\n".as_bytes());

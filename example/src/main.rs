@@ -83,7 +83,10 @@ fn main() -> Result<()> {
         }
     });
 
-    // Starts a new thread for our test TCP server.
+    // Starts a new thread for our test TCP server. Messages that start with 'q' will cause the
+    // server thread to terminate. Messages that begin with 'send' will send that message to
+    // the current leader. Finally, messages that begin with 'broadcast' will broadcast that
+    // message to all nodes in the group.
     let op_tcp = op.clone();
     let host_port = args[4].clone();
     thread::spawn(move || {

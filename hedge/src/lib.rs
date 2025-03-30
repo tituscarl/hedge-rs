@@ -35,12 +35,20 @@ use uuid::Uuid;
 #[macro_use(defer)]
 extern crate scopeguard;
 
+/// `Comms` defines the messages used to callback to this crate's caller
+/// for their replies to both the send() and broadcast() APIs.
 #[derive(Debug)]
 pub enum Comms {
+    /// `ToLeader` is the message used to implement the callback handler
+    /// for the send() API.
     ToLeader { msg: Vec<u8>, tx: mpsc::Sender<Vec<u8>> },
+    /// `Broadcast` is the message used to implement the callback handler
+    /// for the broadcast() API.
     Broadcast { msg: Vec<u8>, tx: mpsc::Sender<Vec<u8>> },
 }
 
+/// `Broadcast` defines the message(s) used to facilitate broadcast
+/// handling between this crate and the calling client.
 #[derive(Debug)]
 pub enum Broadcast {
     /// `ReplyStream` is the message used to stream broadcast replies.
