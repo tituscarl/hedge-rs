@@ -654,6 +654,7 @@ pub struct OpBuilder {
 }
 
 impl OpBuilder {
+    /// Creates a new `OpBuilder` instance with default values.
     pub fn new() -> OpBuilder {
         OpBuilder::default()
     }
