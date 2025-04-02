@@ -37,8 +37,7 @@ fn main() -> Result<()> {
             .name("hedge-rs".to_string())
             .id(args[3].to_string())
             .lease_ms(3_000)
-            .tx_toleader(Some(tx_comms.clone()))
-            .tx_broadcast(Some(tx_comms.clone()))
+            .tx_comms(Some(tx_comms.clone()))
             .build(),
     ));
 
@@ -73,6 +72,9 @@ fn main() -> Result<()> {
                         let mut reply = String::new();
                         write!(&mut reply, "echo '{msg_s}' from {}", id_handler.to_string()).unwrap();
                         tx.send(reply.as_bytes().to_vec()).unwrap();
+                    }
+                    Comms::OnLeaderChange(state) => {
+                        info!("leader state change: {state}");
                     }
                 },
                 Err(e) => {

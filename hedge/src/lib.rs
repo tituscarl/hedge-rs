@@ -45,6 +45,9 @@ pub enum Comms {
     /// The message used to implement the callback handler
     /// for the broadcast() API.
     Broadcast { msg: Vec<u8>, tx: mpsc::Sender<Vec<u8>> },
+    /// The message used when caller is notified of leader
+    /// state changes. 1 = leader, 0 = member.
+    OnLeaderChange(usize),
 }
 
 /// Defines the message(s) used to facilitate broadcast
@@ -87,6 +90,7 @@ pub struct Op {
     tx_worker: Vec<Sender<WorkerCtrl>>,
     tx_toleader: Option<mpsc::Sender<Comms>>,
     tx_broadcast: Option<mpsc::Sender<Comms>>,
+    tx_onleader: Option<mpsc::Sender<Comms>>,
     active: Arc<AtomicUsize>,
 }
 
@@ -135,12 +139,23 @@ impl Op {
 
         // We will use the channel-style callback from spindle_rs.
         let leader_setter = self.leader.clone();
+        let tx_state = self.tx_onleader.clone();
         thread::spawn(move || {
             loop {
                 let ldr = rx_ldr.recv();
                 match ldr {
-                    Ok(v) => leader_setter.store(v, Ordering::Relaxed),
-                    Err(_) => {}
+                    Ok(v) => {
+                        leader_setter.store(v, Ordering::Relaxed);
+                        if let Some(tx_lc) = tx_state.clone() {
+                            let _ = &tx_lc.send(Comms::OnLeaderChange(v));
+                        };
+                    }
+                    Err(_) => {
+                        leader_setter.store(0, Ordering::Relaxed);
+                        if let Some(tx_lc) = tx_state.clone() {
+                            let _ = &tx_lc.send(Comms::OnLeaderChange(0));
+                        };
+                    }
                 }
             }
         });
@@ -651,6 +666,7 @@ pub struct OpBuilder {
     sync_ms: u64,
     tx_toleader: Option<mpsc::Sender<Comms>>,
     tx_broadcast: Option<mpsc::Sender<Comms>>,
+    tx_onleader: Option<mpsc::Sender<Comms>>,
 }
 
 impl OpBuilder {
@@ -695,17 +711,13 @@ impl OpBuilder {
         self
     }
 
-    /// Sets the channel for the `send()` API. Caller can use the Receiver pair
-    /// to listen to messages from other nodes when the node is the leader.
-    pub fn tx_toleader(mut self, tx: Option<mpsc::Sender<Comms>>) -> OpBuilder {
-        self.tx_toleader = tx;
-        self
-    }
-
-    /// Sets the channel for the `broadcast()` API. Caller can use the Receiver
-    /// pair to listen to broadcast messages from any node.
-    pub fn tx_broadcast(mut self, tx: Option<mpsc::Sender<Comms>>) -> OpBuilder {
-        self.tx_broadcast = tx;
+    /// Sets the channel for the `send()` and `broadcast()` APIs, as well as
+    /// the leader state changes notification. Caller can use the Receiver
+    /// pair to listen to `Comms::?` messages.
+    pub fn tx_comms(mut self, tx: Option<mpsc::Sender<Comms>>) -> OpBuilder {
+        self.tx_toleader = tx.clone();
+        self.tx_broadcast = tx.clone();
+        self.tx_onleader = tx;
         self
     }
 
@@ -729,6 +741,7 @@ impl OpBuilder {
             tx_worker: vec![],
             tx_toleader: self.tx_toleader,
             tx_broadcast: self.tx_broadcast,
+            tx_onleader: self.tx_onleader,
             active: Arc::new(AtomicUsize::new(0)),
         }
     }
