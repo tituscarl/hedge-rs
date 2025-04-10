@@ -1,6 +1,6 @@
 [package]
 name = "hedge_rs"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 authors = ["flowerinthenight <root@flowerinthenight.com>"]
 description = "A cluster membership library built on spindle-rs."
@@ -10,14 +10,14 @@ keywords = ["memberlist", "cluster", "spanner", "leader-election", "distributed-
 
 [dependencies]
 tokio = { version = "1.44.2", features = ["full"] }
-google-cloud-spanner = { package="gcloud-spanner", version="1.1.0" }
+google-cloud-spanner = { package="gcloud-spanner", version="1.2.0" }
 exp_backoff = "0.1.5"
 log = "0.4.27"
 time = "0.3.41"
 scopeguard = "1.2.0"
 uuid = { version = "1.16.0", features = ["v4"] }
 anyhow = "1.0.97"
-crossbeam-channel = "0.5.14"
-spindle_rs = "0.2.11"
+crossbeam-channel = "0.5.15"
+spindle_rs = "0.2.12"
 num_cpus = "1.16.0"
 base64ct = { version = "1.7.3", features = ["alloc"] }
