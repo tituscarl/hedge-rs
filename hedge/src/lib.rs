@@ -103,6 +103,7 @@ impl Op {
     /// Starts the membership and leader election tracking.
     /// This function doesn't block.
     pub fn run(&mut self) -> Result<()> {
+        info!("starting Op::run()");
         {
             let members = self.members.clone();
             let id = self.id.clone();
