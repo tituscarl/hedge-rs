@@ -108,12 +108,22 @@ pub fn handle_protocol(
             return;
         }
 
-        let mut rep = rx.recv().unwrap();
-        let mut ack = vec![b'+'];
-        ack.append(&mut rep);
-        ack.push(b'\n');
-        let _ = stream.write_all(&ack);
-        return;
+        match rx.recv() {
+            Ok(mut rep) => {
+                let mut ack = vec![b'+'];
+                ack.append(&mut rep);
+                ack.push(b'\n');
+
+                let _ = stream.write_all(&ack);
+                return;
+            }
+            Err(e) => {
+                let mut err = String::new();
+                write!(&mut err, "-{e}\n").unwrap();
+                let _ = stream.write_all(err.as_bytes());
+                return;
+            }
+        }
     }
 
     // broadcast() handler. Intended for all nodes, so we reply here.
@@ -141,12 +151,22 @@ pub fn handle_protocol(
             return;
         }
 
-        let mut rep = rx.recv().unwrap();
-        let mut ack = vec![b'+'];
-        ack.append(&mut rep);
-        ack.push(b'\n');
-        let _ = stream.write_all(&ack);
-        return;
+        match rx.recv() {
+            Ok(mut rep) => {
+                let mut ack = vec![b'+'];
+                ack.append(&mut rep);
+                ack.push(b'\n');
+
+                let _ = stream.write_all(&ack);
+                return;
+            }
+            Err(e) => {
+                let mut err = String::new();
+                write!(&mut err, "-{e}\n").unwrap();
+                let _ = stream.write_all(err.as_bytes());
+                return;
+            }
+        }
     }
 
     let _ = stream.write_all(b"-unknown\n");

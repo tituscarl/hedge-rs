@@ -170,8 +170,15 @@ impl Op {
             let recv = rxs.clone();
 
             {
-                let mut rv = recv.lock().unwrap();
-                rv.insert(i, rx.clone());
+                match recv.lock() {
+                    Ok(mut rv) => {
+                        rv.insert(i, rx.clone());
+                    }
+                    Err(e) => {
+                        error!("lock failed: {e}");
+                        return Err(anyhow!("lock failed"));
+                    }
+                }
             }
         }
 
@@ -207,179 +214,191 @@ impl Op {
                             rx = Some(v.clone());
                         }
                     }
+                    match rx {
+                        Some(v) => match v.recv() {
+                            Ok(v) => match v {
+                                WorkerCtrl::TcpServer(stream) => {
+                                    let start = Instant::now();
 
-                    match rx.unwrap().recv().unwrap() {
-                        WorkerCtrl::TcpServer(stream) => {
-                            let start = Instant::now();
+                                    defer! {
+                                        debug!("[T{i}]: tcp took {:?}", start.elapsed());
+                                    }
 
-                            defer! {
-                                debug!("[T{i}]: tcp took {:?}", start.elapsed());
-                            }
+                                    handle_protocol(
+                                        i,
+                                        stream,
+                                        leader.load(Ordering::Acquire),
+                                        members.clone(),
+                                        toleader.clone(),
+                                        broadcast.clone(),
+                                    );
+                                }
+                                WorkerCtrl::PingMember(name) => {
+                                    let mut delete = false;
+                                    let start = Instant::now();
 
-                            handle_protocol(
-                                i,
-                                stream,
-                                leader.load(Ordering::Acquire),
-                                members.clone(),
-                                toleader.clone(),
-                                broadcast.clone(),
-                            );
-                        }
-                        WorkerCtrl::PingMember(name) => {
-                            let mut delete = false;
-                            let start = Instant::now();
+                                    defer! {
+                                        debug!("[T{i}]: ping took {:?}", start.elapsed());
+                                    }
 
-                            defer! {
-                                debug!("[T{i}]: ping took {:?}", start.elapsed());
-                            }
+                                    'onetime: loop {
+                                        let hp: Vec<&str> = name.split(":").collect();
+                                        let hh: Vec<&str> = hp[0].split(".").collect();
+                                        let ip = SocketAddr::new(
+                                            IpAddr::V4(Ipv4Addr::new(
+                                                hh[0].parse::<u8>().unwrap(),
+                                                hh[1].parse::<u8>().unwrap(),
+                                                hh[2].parse::<u8>().unwrap(),
+                                                hh[3].parse::<u8>().unwrap(),
+                                            )),
+                                            hp[1].parse::<u16>().unwrap(),
+                                        );
 
-                            'onetime: loop {
-                                let hp: Vec<&str> = name.split(":").collect();
-                                let hh: Vec<&str> = hp[0].split(".").collect();
-                                let ip = SocketAddr::new(
-                                    IpAddr::V4(Ipv4Addr::new(
-                                        hh[0].parse::<u8>().unwrap(),
-                                        hh[1].parse::<u8>().unwrap(),
-                                        hh[2].parse::<u8>().unwrap(),
-                                        hh[3].parse::<u8>().unwrap(),
-                                    )),
-                                    hp[1].parse::<u16>().unwrap(),
-                                );
+                                        let mut stream = match TcpStream::connect_timeout(&ip, Duration::from_secs(5)) {
+                                            Ok(v) => v,
+                                            Err(e) => {
+                                                error!("connect_timeout to {name} failed: {e}");
+                                                delete = true;
+                                                break 'onetime;
+                                            }
+                                        };
 
-                                let mut stream = match TcpStream::connect_timeout(&ip, Duration::from_secs(5)) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        error!("connect_timeout to {name} failed: {e}");
-                                        delete = true;
+                                        let mut send = String::new();
+                                        write!(&mut send, "{}\n", CMD_PING).unwrap();
+                                        if let Err(_) = stream.write_all(send.as_bytes()) {
+                                            break 'onetime;
+                                        }
+
+                                        let mut reader = BufReader::new(&stream);
+                                        let mut resp = String::new();
+                                        reader.read_line(&mut resp).unwrap();
+
+                                        if !resp.starts_with("+1") {
+                                            delete = true
+                                        }
+
                                         break 'onetime;
                                     }
-                                };
 
-                                let mut send = String::new();
-                                write!(&mut send, "{}\n", CMD_PING).unwrap();
-                                if let Err(_) = stream.write_all(send.as_bytes()) {
-                                    break 'onetime;
-                                }
-
-                                let mut reader = BufReader::new(&stream);
-                                let mut resp = String::new();
-                                reader.read_line(&mut resp).unwrap();
-
-                                if !resp.starts_with("+1") {
-                                    delete = true
-                                }
-
-                                break 'onetime;
-                            }
-
-                            if delete {
-                                let members = members.clone();
-                                if let Ok(mut v) = members.lock() {
-                                    v.remove(&name);
-                                }
-                            }
-                        }
-                        WorkerCtrl::ToLeader { msg, tx } => {
-                            let start = Instant::now();
-
-                            defer! {
-                                debug!("[T{i}]: toleader took {:?}", start.elapsed());
-                            }
-
-                            'onetime: loop {
-                                let mut leader = String::new();
-
-                                {
-                                    if let Ok(v) = lock.lock() {
-                                        let (_, writer, _) = v.has_lock();
-                                        write!(&mut leader, "{}", writer).unwrap();
+                                    if delete {
+                                        let members = members.clone();
+                                        if let Ok(mut v) = members.lock() {
+                                            v.remove(&name);
+                                        }
                                     }
                                 }
+                                WorkerCtrl::ToLeader { msg, tx } => {
+                                    let start = Instant::now();
 
-                                if leader.is_empty() {
-                                    tx.send("-no leader".as_bytes().to_vec()).unwrap();
-                                    break 'onetime;
-                                }
+                                    defer! {
+                                        debug!("[T{i}]: toleader took {:?}", start.elapsed());
+                                    }
 
-                                let encoded = Base64::encode_string(&msg);
+                                    'onetime: loop {
+                                        let mut leader = String::new();
 
-                                let hp: Vec<&str> = leader.split(":").collect();
-                                let hh: Vec<&str> = hp[0].split(".").collect();
-                                let leader_ip = SocketAddr::new(
-                                    IpAddr::V4(Ipv4Addr::new(
-                                        hh[0].parse::<u8>().unwrap(),
-                                        hh[1].parse::<u8>().unwrap(),
-                                        hh[2].parse::<u8>().unwrap(),
-                                        hh[3].parse::<u8>().unwrap(),
-                                    )),
-                                    hp[1].parse::<u16>().unwrap(),
-                                );
+                                        {
+                                            if let Ok(v) = lock.lock() {
+                                                let (_, writer, _) = v.has_lock();
+                                                write!(&mut leader, "{}", writer).unwrap();
+                                            }
+                                        }
 
-                                let mut stream = match TcpStream::connect_timeout(&leader_ip, Duration::from_secs(5)) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        let mut err = String::new();
-                                        write!(&mut err, "-connect_timeout failed: {e}").unwrap();
-                                        tx.send(err.as_bytes().to_vec()).unwrap();
+                                        if leader.is_empty() {
+                                            tx.send("-no leader".as_bytes().to_vec()).unwrap();
+                                            break 'onetime;
+                                        }
+
+                                        let encoded = Base64::encode_string(&msg);
+
+                                        let hp: Vec<&str> = leader.split(":").collect();
+                                        let hh: Vec<&str> = hp[0].split(".").collect();
+                                        let leader_ip = SocketAddr::new(
+                                            IpAddr::V4(Ipv4Addr::new(
+                                                hh[0].parse::<u8>().unwrap(),
+                                                hh[1].parse::<u8>().unwrap(),
+                                                hh[2].parse::<u8>().unwrap(),
+                                                hh[3].parse::<u8>().unwrap(),
+                                            )),
+                                            hp[1].parse::<u16>().unwrap(),
+                                        );
+
+                                        let mut stream =
+                                            match TcpStream::connect_timeout(&leader_ip, Duration::from_secs(5)) {
+                                                Ok(v) => v,
+                                                Err(e) => {
+                                                    let mut err = String::new();
+                                                    write!(&mut err, "-connect_timeout failed: {e}").unwrap();
+                                                    tx.send(err.as_bytes().to_vec()).unwrap();
+                                                    break 'onetime;
+                                                }
+                                            };
+
+                                        let mut send = String::new();
+                                        write!(&mut send, "{}{}\n", CMD_SEND, encoded).unwrap();
+                                        if let Ok(_) = stream.write_all(send.as_bytes()) {
+                                            let mut reader = BufReader::new(&stream);
+                                            let mut resp = String::new();
+                                            reader.read_line(&mut resp).unwrap();
+                                            tx.send(resp[..resp.len() - 1].as_bytes().to_vec()).unwrap();
+                                        }
+
                                         break 'onetime;
                                     }
-                                };
-
-                                let mut send = String::new();
-                                write!(&mut send, "{}{}\n", CMD_SEND, encoded).unwrap();
-                                if let Ok(_) = stream.write_all(send.as_bytes()) {
-                                    let mut reader = BufReader::new(&stream);
-                                    let mut resp = String::new();
-                                    reader.read_line(&mut resp).unwrap();
-                                    tx.send(resp[..resp.len() - 1].as_bytes().to_vec()).unwrap();
                                 }
+                                WorkerCtrl::Broadcast { name, msg, tx } => {
+                                    let start = Instant::now();
 
-                                break 'onetime;
-                            }
-                        }
-                        WorkerCtrl::Broadcast { name, msg, tx } => {
-                            let start = Instant::now();
+                                    defer! {
+                                        debug!("[T{i}]: broadcast took {:?}", start.elapsed());
+                                    }
 
-                            defer! {
-                                debug!("[T{i}]: broadcast took {:?}", start.elapsed());
-                            }
+                                    'onetime: loop {
+                                        let encoded = Base64::encode_string(&msg);
 
-                            'onetime: loop {
-                                let encoded = Base64::encode_string(&msg);
+                                        let hp: Vec<&str> = name.split(":").collect();
+                                        let hh: Vec<&str> = hp[0].split(".").collect();
+                                        let ip = SocketAddr::new(
+                                            IpAddr::V4(Ipv4Addr::new(
+                                                hh[0].parse::<u8>().unwrap(),
+                                                hh[1].parse::<u8>().unwrap(),
+                                                hh[2].parse::<u8>().unwrap(),
+                                                hh[3].parse::<u8>().unwrap(),
+                                            )),
+                                            hp[1].parse::<u16>().unwrap(),
+                                        );
 
-                                let hp: Vec<&str> = name.split(":").collect();
-                                let hh: Vec<&str> = hp[0].split(".").collect();
-                                let ip = SocketAddr::new(
-                                    IpAddr::V4(Ipv4Addr::new(
-                                        hh[0].parse::<u8>().unwrap(),
-                                        hh[1].parse::<u8>().unwrap(),
-                                        hh[2].parse::<u8>().unwrap(),
-                                        hh[3].parse::<u8>().unwrap(),
-                                    )),
-                                    hp[1].parse::<u16>().unwrap(),
-                                );
+                                        let mut stream = match TcpStream::connect_timeout(&ip, Duration::from_secs(5)) {
+                                            Ok(v) => v,
+                                            Err(e) => {
+                                                let mut err = String::new();
+                                                write!(&mut err, "-connect_timeout failed: {e}").unwrap();
+                                                tx.send(err.as_bytes().to_vec()).unwrap();
+                                                break 'onetime;
+                                            }
+                                        };
 
-                                let mut stream = match TcpStream::connect_timeout(&ip, Duration::from_secs(5)) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        let mut err = String::new();
-                                        write!(&mut err, "-connect_timeout failed: {e}").unwrap();
-                                        tx.send(err.as_bytes().to_vec()).unwrap();
+                                        let mut send = String::new();
+                                        write!(&mut send, "{}{}\n", CMD_BCST, encoded).unwrap();
+                                        if let Ok(_) = stream.write_all(send.as_bytes()) {
+                                            let mut reader = BufReader::new(&stream);
+                                            let mut resp = String::new();
+                                            reader.read_line(&mut resp).unwrap();
+                                            tx.send(resp[..resp.len() - 1].as_bytes().to_vec()).unwrap();
+                                        }
+
                                         break 'onetime;
                                     }
-                                };
-
-                                let mut send = String::new();
-                                write!(&mut send, "{}{}\n", CMD_BCST, encoded).unwrap();
-                                if let Ok(_) = stream.write_all(send.as_bytes()) {
-                                    let mut reader = BufReader::new(&stream);
-                                    let mut resp = String::new();
-                                    reader.read_line(&mut resp).unwrap();
-                                    tx.send(resp[..resp.len() - 1].as_bytes().to_vec()).unwrap();
                                 }
-
-                                break 'onetime;
+                            },
+                            Err(e) => {
+                                error!("T{i}: recv failed: {e}");
+                                break;
                             }
+                        },
+                        None => {
+                            error!("T{i}: rx not found");
+                            break;
                         }
                     }
                 }
@@ -573,12 +592,23 @@ impl Op {
         }
 
         let (tx, rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = unbounded();
-        self.tx_worker[0].send(WorkerCtrl::ToLeader { msg, tx }).unwrap();
-        let r = rx.recv().unwrap();
-        match r[0] {
-            b'+' => return Ok(r[1..].to_vec()),
-            b'-' => return Err(anyhow!(String::from_utf8(r[1..].to_vec()).unwrap())),
-            _ => return Err(anyhow!("unknown")),
+
+        match self.tx_worker[0].send(WorkerCtrl::ToLeader { msg, tx }) {
+            Ok(_) => {}
+            Err(e) => {
+                error!("send failed: {e}");
+                return Err(anyhow!("send failed"));
+            }
+        }
+
+        if let Ok(r) = rx.recv() {
+            match r[0] {
+                b'+' => return Ok(r[1..].to_vec()),
+                b'-' => return Err(anyhow!(String::from_utf8(r[1..].to_vec()).unwrap())),
+                _ => return Err(anyhow!("unknown")),
+            }
+        } else {
+            return Err(anyhow!("recv failed"));
         }
     }
 
@@ -614,33 +644,42 @@ impl Op {
         for name in m {
             let (tx, rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = unbounded();
             rxs.insert(name.clone(), rx.clone());
-            self.tx_worker[0]
-                .send(WorkerCtrl::Broadcast {
-                    name,
-                    msg: msg.to_vec(),
-                    tx,
-                })
-                .unwrap();
+
+            match self.tx_worker[0].send(WorkerCtrl::Broadcast {
+                name,
+                msg: msg.to_vec(),
+                tx,
+            }) {
+                Ok(_) => {}
+                Err(e) => {
+                    error!("broadcast failed: {e}");
+                    return Err(anyhow!("broadcast failed"));
+                }
+            }
         }
 
         for (k, v) in rxs {
-            let r = &v.recv().unwrap();
-            match r[0] {
-                b'+' => {
-                    let _ = tx.send(Broadcast::ReplyStream {
-                        id: k,
-                        msg: r[1..].to_vec(),
-                        error: false,
-                    });
+            if let Ok(r) = &v.recv() {
+                match r[0] {
+                    b'+' => {
+                        let _ = tx.send(Broadcast::ReplyStream {
+                            id: k,
+                            msg: r[1..].to_vec(),
+                            error: false,
+                        });
+                    }
+                    b'-' => {
+                        let _ = tx.send(Broadcast::ReplyStream {
+                            id: k,
+                            msg: r[1..].to_vec(),
+                            error: true,
+                        });
+                    }
+                    _ => {}
                 }
-                b'-' => {
-                    let _ = tx.send(Broadcast::ReplyStream {
-                        id: k,
-                        msg: r[1..].to_vec(),
-                        error: true,
-                    });
-                }
-                _ => {}
+            } else {
+                // todo: not sure on this one
+                return Err(anyhow!("recv failed"));
             }
         }
 

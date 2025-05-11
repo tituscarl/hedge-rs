@@ -107,9 +107,11 @@ fn main() -> Result<()> {
 
                     if msg.starts_with("send") {
                         let send = msg[..msg.len() - 1].to_string();
-                        match op_tcp.lock().unwrap().send(send.as_bytes().to_vec()) {
-                            Ok(v) => info!("reply from leader: {}", String::from_utf8(v).unwrap()),
-                            Err(e) => error!("send failed: {e}"),
+                        if let Ok(mut v) = op_tcp.lock() {
+                            match v.send(send.as_bytes().to_vec()) {
+                                Ok(v) => info!("reply from leader: {}", String::from_utf8(v).unwrap()),
+                                Err(e) => error!("send failed: {e}"),
+                            }
                         }
 
                         continue;
@@ -118,11 +120,13 @@ fn main() -> Result<()> {
                     if msg.starts_with("broadcast") {
                         let (tx_reply, rx_reply): (Sender<Broadcast>, Receiver<Broadcast>) = channel();
                         let send = msg[..msg.len() - 1].to_string();
-                        op_tcp
-                            .lock()
-                            .unwrap()
-                            .broadcast(send.as_bytes().to_vec(), tx_reply)
-                            .unwrap();
+                        if let Ok(mut v) = op_tcp.lock() {
+                            // Send the broadcast message to all nodes.
+                            match v.broadcast(send.as_bytes().to_vec(), tx_reply) {
+                                Ok(_) => info!("broadcast sent"),
+                                Err(e) => error!("broadcast failed: {e}"),
+                            }
+                        }
 
                         // Read through all the replies from all nodes. An empty
                         // id or message marks the end of the streaming reply.
